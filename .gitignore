@@ -1,0 +1,15 @@
+﻿node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+dist/
+build/
+
+# Uploaded documents and generated OCR crops
+cccd-reader-api-main/uploads/*
+!cccd-reader-api-main/uploads/.gitkeep
+cccd-reader-api-main/app/uploads/
