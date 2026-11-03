@@ -1,18 +1,17 @@
 1. Terminal 1 — Chạy Backend (EasyOCR)
 Mở Terminal trong VS Code tại thư mục gốc Nhận diện giấy tờ.
-cd .\cccd-reader-api-main
-Chạy Backend với truststore để tránh lỗi SSL:
-.\.venv\Scripts\python.exe -c "import truststore; truststore.inject_into_ssl(); import uvicorn; uvicorn.run('main:app', host='127.0.0.1', port=8000)"
+##cd .\cccd-reader-api-main
+##.\run_api.bat
 2. Terminal 2 — Chạy Frontend (Flet)
 Mở thêm Terminal mới trong VS Code bằng dấu +.
 
 Nếu đang ở thư mục gốc Nhận diện giấy tờ:
 
-cd .\cccd-reader-fe-main
+##cd .\cccd-reader-fe-main
 
 Vì cậu đã gặp lỗi SSL khi Flet khởi tạo lần đầu, có thể tiếp tục sử dụng lệnh có truststore:
 
-.\.venv\Scripts\python.exe -c "import truststore; truststore.inject_into_ssl(); from flet_cli.cli import main; main()" run main.py
+##.\.venv\Scripts\python.exe -c "import truststore; truststore.inject_into_ssl(); from flet_cli.cli import main; main()" run main.py
 
 Hoặc, sau khi Flet Desktop Client đã được tải và lưu vào máy, thử lệnh ngắn hơn:
 
