@@ -137,3 +137,4 @@ OK
 | Xử lý ảnh bị chụp nghiêng/xoay | **CHỜ GIAI ĐOẠN 3** | Hiện tại cắt box theo tọa độ tương đối cố định; sẽ được giải quyết triệt để khi hoàn thành module `document_rectifier` (Giai đoạn 3) |
 
 ---
+
