@@ -68,7 +68,7 @@ def extract_id_card_fields(image_path: str) -> dict[str, str | None]:
     raise ValueError("Không nhận diện được loại giấy tờ (cần CCCD hoặc GPLX)")
 
 
-if __name__ == "_main_":
+if __name__ == "__main__":
     import json
     import sys
 

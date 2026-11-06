@@ -139,7 +139,7 @@ def extract_gplx_fields(image_path: str) -> dict[str, str | None]:
     }
 
 
-if __name__ == "_main_":
+if __name__ == "__main__":
     import json
     import sys
 

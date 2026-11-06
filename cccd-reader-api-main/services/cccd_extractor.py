@@ -1,17 +1,19 @@
-"""Trích xuất thông tin từ ảnh CCCD (mặt trước) bằng cách cắt vùng theo tỷ lệ rồi OCR.
+"""Trích xuất thông tin từ ảnh CCCD gắn chip (mặt trước) theo tỷ lệ tọa độ rồi OCR.
 
-Chạy thử / xem OCR thô của từng trường (từ thư mục gốc của project):
+Mẫu thẻ hỗ trợ hiện tại
+-----------------------
+- Thẻ Căn cước công dân (CCCD) gắn chip theo Thông tư 06/2021/TT-BCA (áp dụng từ năm 2021 đến trước 01/07/2024).
+- Tiêu đề thẻ: "CĂN CƯỚC CÔNG DÂN / Citizen Identity Card".
+- Mặt trước gồm:
+  + Bên trái: Quốc huy, ảnh chân dung, dòng "Có giá trị đến / Date of expiry" (ngay dưới ảnh chân dung).
+  + Bên phải: Quốc hiệu, tiêu ngữ, Số CCCD ("Số / No."), Họ và tên, Ngày sinh, Giới tính, Quốc tịch, Quê quán, Nơi thường trú.
+- Lưu ý phạm vi:
+  + Chưa hỗ trợ mẫu "Thẻ Căn cước" phát hành từ ngày 01/07/2024 (theo Luật Căn cước 2023 / Thông tư 17/2024/TT-BCA
+    có trường hết hạn chuyển sang mặt sau). Cần phân loại mẫu thẻ và bộ extractor riêng trước khi mở rộng.
+
+Chạy thử / xem OCR thô của từng trường (từ thư mục gốc của project cccd-reader-api-main):
 
     python -m services.cccd_extractor duong_dan_anh.jpg
-
-Hạn chế đã biết
----------------
-- Trường ``expiry_date`` ("Có giá trị đến") nằm ở **MẶT SAU** trên CCCD chip mới (2021+).
-  Nếu ảnh đầu vào là mặt trước, hàm sẽ trả ``None`` và log WARNING.
-  Giải pháp dài hạn: API nhận 2 ảnh riêng (mặt trước + mặt sau).
-
-- Tọa độ ROI của ``id_number`` ước tính theo layout chuẩn Bộ Công an 2021.
-  Cần kiểm tra lại với ảnh CCCD thật; các vị trí đánh dấu ``# CALIBRATION NEEDED``.
 """
 
 from __future__ import annotations
@@ -45,17 +47,15 @@ BOX_PLACE_OF_ORIGIN: Box = (0.28, 0.79, 0.82, 0.855)
 BOX_RESIDENCE_LINE_1: Box = (0.665, 0.855, 0.93, 0.92)  # vd: "Thôn Bích Đông"
 BOX_RESIDENCE_LINE_2: Box = (0.28, 0.91, 0.84, 0.985)  # vd: "Nam Chính, Nam Sách, Hải Dương"
 
-# --- Trường mới: Số CCCD (mặt trước) ---
-# CALIBRATION NEEDED: tọa độ ước tính theo layout CCCD chip 2021 (Bộ Công an).
-# Số 12 chữ số nằm ở góc trên-phải mặt trước, bên dưới quốc huy, trên dòng họ tên.
-# Cần kiểm tra lại với ảnh thật và điều chỉnh nếu cần.
-BOX_ID_NUMBER: Box = (0.57, 0.42, 0.98, 0.52)  # CALIBRATION NEEDED
+# --- Số CCCD (12 chữ số) - mặt trước ---
+# Vị trí: dòng "Số / No.:" nằm bên phải ảnh chân dung, phía trên dòng "Họ và tên".
+# Giá trị số đỏ/đậm bắt đầu sau chữ "Số / No."
+BOX_ID_NUMBER: Box = (0.42, 0.42, 0.88, 0.52)
 
-# --- Trường mới: Có giá trị đến (MẶT SAU trên CCCD chip 2021+) ---
-# CALIBRATION NEEDED: trường này nằm mặt sau, dưới vân tay phải.
-# Nếu ảnh đầu vào là mặt trước, OCR khu vực này sẽ không tìm được ngày → trả None.
-# Nếu ảnh đầu vào là mặt sau, tọa độ ước tính khu vực chứa "Có giá trị đến / Valid until".
-BOX_EXPIRY_DATE: Box = (0.50, 0.75, 0.95, 0.88)  # CALIBRATION NEEDED (mặt sau)
+# --- Có giá trị đến / Date of expiry - mặt trước CCCD chip 2021 (Thông tư 06/2021/TT-BCA) ---
+# Vị trí: góc dưới bên trái, ngay phía dưới ảnh chân dung công dân.
+# Vùng chứa nhãn "Có giá trị đến / Date of expiry" và ngày hết hạn "DD/MM/YYYY".
+BOX_EXPIRY_DATE: Box = (0.04, 0.78, 0.32, 0.92)
 
 STANDARD_WIDTH = 1061  # chuẩn hoá ảnh về cùng độ rộng để tỷ lệ box ổn định
 BOX_PADDING = 0.008  # nới nhẹ mỗi cạnh box (theo tỷ lệ ảnh)
@@ -63,12 +63,16 @@ MIN_CONFIDENCE = 0.3  # ảnh chụp thường mờ nên hạ ngưỡng so với
 EARLY_EXIT_CONFIDENCE = 0.75  # đủ tốt thì không cần thử biến thể tiếp theo
 UPSCALE = 2.0  # vùng cắt rất nhỏ, phóng to giúp OCR đọc tốt hơn
 
-DATE_PATTERN = re.compile(r"\d{2}\s*[/.\-]\s*\d{2}\s*[/.\-]\s*\d{4}")
+DATE_PATTERN = re.compile(r"\b(\d{2})\s*[/.\-]\s*(\d{2})\s*[/.\-]\s*(\d{4})\b")
 
-# Pattern nhận dạng 12 chữ số CCCD; cho phép ký tự phân cách phổ biến giữa các nhóm
-# (OCR đôi khi chèn dấu cách hoặc gạch ngang vào chuỗi số).
-_ID_NUMBER_DIGIT_FIXES = str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "|": "1", "S": "5", "B": "8"})
-_ID_12_PATTERN = re.compile(r"\d{12}")
+# Bảng sửa ký tự nhầm sang số khi ứng viên có cấu trúc số CCCD phù hợp
+_ID_DIGIT_FIXES = str.maketrans({
+    "O": "0", "o": "0", "D": "0", "Q": "0",
+    "I": "1", "l": "1", "|": "1", "i": "1",
+    "Z": "2",
+    "S": "5", "s": "5",
+    "B": "8",
+})
 
 
 @dataclass(frozen=True)
@@ -266,63 +270,111 @@ def extract_residence(image: np.ndarray) -> str | None:
     return ", ".join(lines) or None
 
 
+def _clean_id_candidate(text: str) -> str | None:
+    """Kiểm tra và chuẩn hóa một ứng viên chuỗi số CCCD.
+
+    Quy tắc an toàn:
+    - Loại bỏ ký tự phân cách thông thường: khoảng trắng, dấu gạch ngang, dấu chấm.
+    - Chỉ áp dụng sửa ký tự nhầm (O/0, I/1...) khi chuỗi có độ dài tiềm năng (11-13 ký tự)
+      và phần lớn là ký tự số / ký tự dễ nhầm sang số.
+    - Không sửa trên các chuỗi văn bản thông thường (họ tên, chữ tiếng Việt).
+    - Trả về chuỗi 12 chữ số nếu hợp lệ, ngược lại trả về None.
+    - TUYỆT ĐỐI không cắt chuỗi 13 số để lấy 12, không thêm số cho chuỗi 11 số.
+    """
+    cleaned = re.sub(r"[\s.\-_/:]+", "", text)
+    if not cleaned:
+        return None
+
+    # Nếu chuỗi đã là 12 chữ số thuần
+    if cleaned.isdigit() and len(cleaned) == 12:
+        return cleaned
+
+    # Nếu độ dài không nằm trong khoảng có thể chứa 12 ký tự -> loại bỏ
+    if len(cleaned) != 12:
+        return None
+
+    # Kiểm tra xem có phải chuỗi hầu hết là số và ký tự dễ nhầm hay không
+    # (tránh nhầm họ tên như 'NGUYEN VAN A' thành số)
+    num_digits = sum(1 for ch in cleaned if ch.isdigit())
+    if num_digits < 8:  # Nếu có quá ít số trong 12 ký tự -> không phải ứng viên số CCCD
+        return None
+
+    # Thử sửa các ký tự dễ nhầm sang số
+    translated = cleaned.translate(_ID_DIGIT_FIXES)
+    if translated.isdigit() and len(translated) == 12:
+        return translated
+
+    return None
+
+
 def extract_id_number(image: np.ndarray) -> str | None:
     """Trích xuất số CCCD (12 chữ số) từ mặt trước thẻ.
 
-    Xử lý các lỗi OCR phổ biến: nhầm O/0, I/1, l/1, S/5, B/8.
-    Chỉ trả kết quả khi tìm được đúng 12 chữ số liên tiếp.
-    Không tự sinh hoặc đoán chữ số còn thiếu.
+    Quy tắc bảo vệ tính toàn vẹn dữ liệu:
+    - Chỉ chấp nhận chính xác 12 chữ số. Chuỗi 11 hoặc 13 chữ số trả None.
+    - Không cắt bớt chữ số thừa, không tự thêm chữ số thiếu.
+    - Giữ số CCCD dưới dạng string (bảo toàn số 0 ở đầu).
+    - Đánh giá từng ứng viên dòng/box OCR trước khi xem xét ghép dòng có cấu trúc phù hợp.
+    - KHÔNG ghi số CCCD vào log (bảo mật dữ liệu cá nhân).
     """
     parts = _ocr_region(image, "id_number", BOX_ID_NUMBER)
     if not parts:
-        logger.debug("id_number: không có kết quả OCR")
+        logger.debug("id_number: không có kết quả OCR trong vùng ROI")
         return None
 
-    # Ghép toàn bộ text, áp dụng sửa lỗi ký tự, giữ lại chỉ chữ số
-    raw = " ".join(parts)
-    corrected = raw.translate(_ID_NUMBER_DIGIT_FIXES)
-    digits_only = re.sub(r"\D", "", corrected)
+    # 1. Ưu tiên kiểm tra từng dòng/đoạn riêng lẻ trước (tránh ghép bừa bãi giữa các dòng khác nhau)
+    for part in parts:
+        candidate = _clean_id_candidate(part)
+        if candidate is not None:
+            logger.debug("id_number: trích xuất thành công 12 chữ số từ một đoạn OCR")
+            return candidate
 
-    match = _ID_12_PATTERN.search(digits_only)
-    if match:
-        return match.group(0)
+    # 2. Nếu OCR bị tách nhỏ số thành nhiều cụm cùng 1 dòng (ví dụ: '079', '123', '456789')
+    # Chỉ ghép nếu tất cả các phần tử ghép đều là số hoặc ký tự phân tách
+    combined = "".join(parts)
+    candidate = _clean_id_candidate(combined)
+    if candidate is not None:
+        logger.debug("id_number: trích xuất thành công 12 chữ số từ các đoạn ghép")
+        return candidate
 
-    logger.debug("id_number: không tìm được chuỗi 12 chữ số (raw=%r, digits=%r)", raw, digits_only)
+    logger.debug("id_number: không tìm thấy chuỗi chính xác 12 chữ số hợp lệ")
     return None
 
 
 def extract_expiry_date(image: np.ndarray) -> str | None:
-    """Trích xuất trường "Có giá trị đến" từ ảnh CCCD.
+    """Trích xuất trường "Có giá trị đến / Date of expiry" từ mặt trước thẻ CCCD chip 2021.
 
-    Hạn chế: trên CCCD chip mới (2021+), trường này nằm ở MẶT SAU.
-    Nếu ảnh đầu vào là mặt trước, hàm sẽ không tìm được ngày và trả None.
-
+    Vị trí: góc dưới bên trái, ngay phía dưới ảnh chân dung công dân.
     Chuẩn hóa kết quả về định dạng DD/MM/YYYY.
     Kiểm tra ngày tháng hợp lệ bằng datetime. Không tự tính từ ngày sinh.
+    Nếu trường không xuất hiện hoặc không đọc được, trả về None.
     """
     parts = _ocr_region(image, "expiry_date", BOX_EXPIRY_DATE)
     if not parts:
-        logger.debug("expiry_date: không có kết quả OCR (có thể ảnh là mặt trước)")
+        logger.debug("expiry_date: không có kết quả OCR trong vùng ROI")
         return None
 
-    text = " ".join(parts)
-    match = DATE_PATTERN.search(text)
-    if not match:
-        logger.debug("expiry_date: không khớp pattern ngày (raw=%r)", text)
-        return None
+    for text in parts:
+        match = DATE_PATTERN.search(text)
+        if match:
+            day_str, month_str, year_str = match.groups()
+            formatted = f"{day_str}/{month_str}/{year_str}"
+            try:
+                datetime.strptime(formatted, "%d/%m/%Y")
+                logger.debug("expiry_date: trích xuất và kiểm tra ngày hợp lệ thành công")
+                return formatted
+            except ValueError:
+                logger.debug("expiry_date: ngày tháng không hợp lệ trên lịch (%s)", formatted)
+                continue
 
-    # Chuẩn hoá: loại khoảng trắng thừa, thay phân cách về "/"
-    raw_date = re.sub(r"\s+", "", match.group(0))
-    normalized = re.sub(r"[.\-]", "/", raw_date)
+    # Trường hợp không thời hạn (nếu có nhãn hoặc không có ngày hợp lệ)
+    tokens = _tokens(" ".join(parts))
+    if "khong" in tokens and ("thoi" in tokens or "han" in tokens):
+        logger.debug("expiry_date: nhận diện không thời hạn")
+        return "Không thời hạn"
 
-    # Kiểm tra ngày hợp lệ
-    try:
-        datetime.strptime(normalized, "%d/%m/%Y")
-    except ValueError:
-        logger.debug("expiry_date: ngày không hợp lệ (%r)", normalized)
-        return None
-
-    return normalized
+    logger.debug("expiry_date: không tìm thấy ngày hết hạn hợp lệ")
+    return None
 
 
 def extract_cccd_fields(image_path: str) -> dict[str, str | None]:
@@ -344,7 +396,7 @@ def extract_cccd_fields(image_path: str) -> dict[str, str | None]:
     }
 
 
-if __name__ == "_main_":
+if __name__ == "__main__":
     import json
     import sys
 
