@@ -32,6 +32,17 @@ BOX_ADDRESS: Box = (0.38, 0.580, 0.91, 0.665)  # có thể xuống 2 dòng nên 
 BOX_CLASS: Box = (0.165, 0.795, 0.245, 0.865)
 BOX_EXPIRES: Box = (0.28, 0.895, 0.55, 0.965)
 
+# Bảng ROI duy nhất cho GPLX (Extractor & Debug tool đồng bộ)
+GPLX_ROIS: dict[str, Box] = {
+    "license_number": BOX_LICENSE_NUMBER,
+    "full_name": BOX_FULL_NAME,
+    "date_of_birth": BOX_DATE_OF_BIRTH,
+    "nationality": BOX_NATIONALITY,
+    "address": BOX_ADDRESS,
+    "license_class": BOX_CLASS,
+    "expiry": BOX_EXPIRES,
+}
+
 VALID_CLASSES: frozenset[str] = frozenset(
     {"A1", "A2", "A3", "A4", "B1", "B2", "C", "D", "E", "FB2", "FC", "FD", "FE"}
 )

@@ -39,23 +39,32 @@ Box = tuple[float, float, float, float]
 
 # Mỗi vùng chỉ bao đúng phần GIÁ TRỊ của trường,
 # không lẫn nhãn ("Giới tính / Sex"...) hay dòng của trường kế bên.
-BOX_FULL_NAME: Box = (0.27, 0.53, 0.61, 0.63)
+BOX_ID_NUMBER: Box = (0.37, 0.39, 0.89, 0.51)
+BOX_FULL_NAME: Box = (0.27, 0.535, 0.62, 0.605)
 BOX_DATE_OF_BIRTH: Box = (0.56, 0.61, 0.76, 0.70)
 BOX_GENDER: Box = (0.46, 0.665, 0.545, 0.74)
 BOX_NATIONALITY: Box = (0.81, 0.645, 0.985, 0.735)
-BOX_PLACE_OF_ORIGIN: Box = (0.28, 0.79, 0.82, 0.855)
-BOX_RESIDENCE_LINE_1: Box = (0.665, 0.855, 0.93, 0.92)  # vd: "Thôn Bích Đông"
-BOX_RESIDENCE_LINE_2: Box = (0.28, 0.91, 0.84, 0.985)  # vd: "Nam Chính, Nam Sách, Hải Dương"
-
-# --- Số CCCD (12 chữ số) - mặt trước ---
-# Vị trí: dòng "Số / No.:" nằm bên phải ảnh chân dung, phía trên dòng "Họ và tên".
-# Giá trị số đỏ/đậm bắt đầu sau chữ "Số / No."
-BOX_ID_NUMBER: Box = (0.42, 0.42, 0.88, 0.52)
+BOX_PLACE_OF_ORIGIN: Box = (0.28, 0.79, 0.82, 0.845)
+BOX_RESIDENCE_LINE_1: Box = (0.665, 0.855, 0.93, 0.915)  # vd: "Thôn Bích Đông"
+BOX_RESIDENCE_LINE_2: Box = (0.28, 0.915, 0.84, 0.985)  # vd: "Nam Chính, Nam Sách, Hải Dương"
 
 # --- Có giá trị đến / Date of expiry - mặt trước CCCD chip 2021 (Thông tư 06/2021/TT-BCA) ---
 # Vị trí: góc dưới bên trái, ngay phía dưới ảnh chân dung công dân.
-# Vùng chứa nhãn "Có giá trị đến / Date of expiry" và ngày hết hạn "DD/MM/YYYY".
-BOX_EXPIRY_DATE: Box = (0.04, 0.78, 0.32, 0.92)
+# Vùng chứa nhãn "Có giá trị đến / Date of expiry" và ngày hết hạn "DD/MM/YYYY" hoặc "Không thời hạn".
+BOX_EXPIRY_DATE: Box = (0.025, 0.85, 0.28, 0.92)
+
+# Bảng ROI duy nhất cho toàn bộ hệ thống (Extractor & Debug tool đồng bộ)
+CCCD_ROIS: dict[str, Box] = {
+    "id_number": BOX_ID_NUMBER,
+    "full_name": BOX_FULL_NAME,
+    "date_of_birth": BOX_DATE_OF_BIRTH,
+    "gender": BOX_GENDER,
+    "nationality": BOX_NATIONALITY,
+    "place_of_origin": BOX_PLACE_OF_ORIGIN,
+    "residence_line_1": BOX_RESIDENCE_LINE_1,
+    "residence_line_2": BOX_RESIDENCE_LINE_2,
+    "expiry_date": BOX_EXPIRY_DATE,
+}
 
 STANDARD_WIDTH = 1061  # chuẩn hoá ảnh về cùng độ rộng để tỷ lệ box ổn định
 BOX_PADDING = 0.008  # nới nhẹ mỗi cạnh box (theo tỷ lệ ảnh)
@@ -64,6 +73,62 @@ EARLY_EXIT_CONFIDENCE = 0.75  # đủ tốt thì không cần thử biến thể
 UPSCALE = 2.0  # vùng cắt rất nhỏ, phóng to giúp OCR đọc tốt hơn
 
 DATE_PATTERN = re.compile(r"\b(\d{2})\s*[/.\-]\s*(\d{2})\s*[/.\-]\s*(\d{4})\b")
+DATE_8_DIGITS_PATTERN = re.compile(r"\b(\d{2})(\d{2})(\d{4})\b")
+
+
+def _parse_date_string(text: str) -> str | None:
+    """Trích xuất và chuẩn hóa ngày tháng từ văn bản OCR.
+
+    1. Ưu tiên tìm định dạng có đủ 2 ký tự phân cách: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY.
+    2. Hỗ trợ định dạng khuyết 1 dấu phân cách (do OCR mờ nét): DD/MMYYYY hoặc DDMM/YYYY.
+    3. Hỗ trợ định dạng 8 chữ số liền nhau DDMMYYYY:
+       - Chỉ áp dụng khi 8 chữ số được OCR từ đúng vùng ROI và có cấu trúc hợp lý.
+       - Kiểm tra tính hợp lệ trên lịch bằng datetime (loại bỏ ngày 32, tháng 13, 29/02 năm không nhuận).
+       - Kiểm tra phạm vi năm hợp lý (1900-2100).
+    4. Trả về chuỗi định dạng chuẩn DD/MM/YYYY nếu hợp lệ, ngược lại trả về None.
+    """
+    # Chuẩn hóa khoảng trắng quanh dấu phân cách
+    cleaned = re.sub(r"(\d)\s+[/.\-]\s*(\d)", r"\1/\2", text)
+    cleaned = re.sub(r"(\d)\s*[/.\-]\s+(\d)", r"\1/\2", cleaned)
+
+    # 1. Hai dấu phân cách: DD/MM/YYYY
+    match_2 = re.search(r"\b(\d{2})[/.\-](\d{2})[/.\-](\d{4})\b", cleaned)
+    if match_2:
+        d, mth, y = match_2.groups()
+        try:
+            return datetime.strptime(f"{d}/{mth}/{y}", "%d/%m/%Y").strftime("%d/%m/%Y")
+        except ValueError:
+            pass
+
+    # 2. Khuyết dấu phân cách thứ hai (vd: 27/032031)
+    match_d1 = re.search(r"\b(\d{2})[/.\-](\d{2})(\d{4})\b", cleaned)
+    if match_d1:
+        d, mth, y = match_d1.groups()
+        try:
+            return datetime.strptime(f"{d}/{mth}/{y}", "%d/%m/%Y").strftime("%d/%m/%Y")
+        except ValueError:
+            pass
+
+    # 3. Khuyết dấu phân cách thứ nhất (vd: 2703/2031)
+    match_d2 = re.search(r"\b(\d{2})(\d{2})[/.\-](\d{4})\b", cleaned)
+    if match_d2:
+        d, mth, y = match_d2.groups()
+        try:
+            return datetime.strptime(f"{d}/{mth}/{y}", "%d/%m/%Y").strftime("%d/%m/%Y")
+        except ValueError:
+            pass
+
+    # 4. Định dạng 8 chữ số thuần túy DDMMYYYY
+    for match_8 in DATE_8_DIGITS_PATTERN.finditer(cleaned):
+        day_str, month_str, year_str = match_8.groups()
+        year = int(year_str)
+        if 1900 <= year <= 2100:
+            try:
+                return datetime.strptime(f"{day_str}/{month_str}/{year_str}", "%d/%m/%Y").strftime("%d/%m/%Y")
+            except ValueError:
+                continue
+
+    return None
 
 # Bảng sửa ký tự nhầm sang số khi ứng viên có cấu trúc số CCCD phù hợp
 _ID_DIGIT_FIXES = str.maketrans({
@@ -154,7 +219,12 @@ def _crop_region(image: np.ndarray, field: str, box: Box) -> np.ndarray:
     return crop
 
 
-def _run_ocr(processed: np.ndarray, field: str, variant: str) -> OcrCandidate:
+def _run_ocr(
+    processed: np.ndarray,
+    field: str,
+    variant: str,
+    min_confidence: float = MIN_CONFIDENCE,
+) -> OcrCandidate:
     upscaled = cv2.resize(processed, None, fx=UPSCALE, fy=UPSCALE, interpolation=cv2.INTER_CUBIC)
 
     # Dùng thư mục tạm riêng cho mỗi lần gọi: không để rác trong thư mục upload
@@ -175,7 +245,7 @@ def _run_ocr(processed: np.ndarray, field: str, variant: str) -> OcrCandidate:
     kept = [
         (item["text"].strip(), float(item["confidence"]))
         for item in results
-        if item["confidence"] >= MIN_CONFIDENCE and re.search(r"\w", item["text"])
+        if item["confidence"] >= min_confidence and re.search(r"\w", item["text"])
     ]
     if not kept:
         return OcrCandidate(variant, [], 0.0, 0.0)
@@ -188,13 +258,18 @@ def _run_ocr(processed: np.ndarray, field: str, variant: str) -> OcrCandidate:
     )
 
 
-def _ocr_region(image: np.ndarray, field: str, box: Box) -> list[str]:
+def _ocr_region(
+    image: np.ndarray,
+    field: str,
+    box: Box,
+    min_confidence: float = MIN_CONFIDENCE,
+) -> list[str]:
     """Cắt vùng theo tỷ lệ, thử nhiều cách tiền xử lý, trả về kết quả OCR tốt nhất."""
     crop = _crop_region(image, field, box)
 
     best: OcrCandidate | None = None
     for name, preprocess in PREPROCESS_VARIANTS:
-        candidate = _run_ocr(preprocess(crop), field, name)
+        candidate = _run_ocr(preprocess(crop), field, name, min_confidence=min_confidence)
 
         if best is None or candidate.weight > best.weight:
             best = candidate
@@ -223,7 +298,21 @@ def _tokens(text: str) -> set[str]:
 
 def extract_full_name(image: np.ndarray) -> str | None:
     parts = _ocr_region(image, "full_name", BOX_FULL_NAME)
-    return " ".join(parts) or None
+    if not parts:
+        return None
+
+    # Lọc bỏ các từ rác có thể là nhãn "Họ và tên" hoặc "Full name" nếu lỡ lọt vào mép trên
+    cleaned_parts: list[str] = []
+    for part in parts:
+        norm = unicodedata.normalize("NFD", part.lower())
+        stripped = "".join(ch for ch in norm if unicodedata.category(ch) != "Mn")
+        # Nếu đoạn text chỉ chứa nhãn tiêu đề trường thì bỏ qua
+        if re.search(r"\b(ho va ten|hovaten|full name|fullname|ho|ten)\b", stripped) and len(stripped) <= 12:
+            continue
+        cleaned_parts.append(part)
+
+    result = " ".join(cleaned_parts).strip()
+    return result or None
 
 
 def extract_date_of_birth(image: np.ndarray) -> str | None:
@@ -231,10 +320,10 @@ def extract_date_of_birth(image: np.ndarray) -> str | None:
     if not parts:
         return None
 
-    text = " ".join(parts)
-    match = DATE_PATTERN.search(text)
-    if match:
-        return re.sub(r"\s+", "", match.group(0))
+    for text in parts:
+        parsed = _parse_date_string(text)
+        if parsed:
+            return parsed
     return parts[0]
 
 
@@ -345,33 +434,34 @@ def extract_expiry_date(image: np.ndarray) -> str | None:
     """Trích xuất trường "Có giá trị đến / Date of expiry" từ mặt trước thẻ CCCD chip 2021.
 
     Vị trí: góc dưới bên trái, ngay phía dưới ảnh chân dung công dân.
-    Chuẩn hóa kết quả về định dạng DD/MM/YYYY.
+    Chuẩn hóa kết quả về định dạng DD/MM/YYYY (hỗ trợ cả DD/MM/YYYY và DDMMYYYY 8 số hợp lệ).
     Kiểm tra ngày tháng hợp lệ bằng datetime. Không tự tính từ ngày sinh.
     Nếu trường không xuất hiện hoặc không đọc được, trả về None.
     """
-    parts = _ocr_region(image, "expiry_date", BOX_EXPIRY_DATE)
-    if not parts:
-        logger.debug("expiry_date: không có kết quả OCR trong vùng ROI")
-        return None
-
+    # 1. Thử với ngưỡng chuẩn của hệ thống (MIN_CONFIDENCE = 0.3)
+    parts = _ocr_region(image, "expiry_date", BOX_EXPIRY_DATE, min_confidence=MIN_CONFIDENCE)
     for text in parts:
-        match = DATE_PATTERN.search(text)
-        if match:
-            day_str, month_str, year_str = match.groups()
-            formatted = f"{day_str}/{month_str}/{year_str}"
-            try:
-                datetime.strptime(formatted, "%d/%m/%Y")
-                logger.debug("expiry_date: trích xuất và kiểm tra ngày hợp lệ thành công")
-                return formatted
-            except ValueError:
-                logger.debug("expiry_date: ngày tháng không hợp lệ trên lịch (%s)", formatted)
-                continue
+        parsed = _parse_date_string(text)
+        if parsed:
+            logger.debug("expiry_date: trích xuất ngày hợp lệ thành công (%s)", parsed)
+            return parsed
+
+    # 2. Bổ sung: kiểm tra khi ngày ở góc thẻ có độ tương phản/độ phân giải thấp
+    # Chỉ chấp nhận khi tìm thấy đúng 8 chữ số độc lập và được datetime xác thực hợp lệ trên lịch.
+    parts_candidate = _ocr_region(image, "expiry_date", BOX_EXPIRY_DATE, min_confidence=0.10)
+    for text in parts_candidate:
+        parsed = _parse_date_string(text)
+        if parsed:
+            logger.debug("expiry_date: trích xuất ngày từ 8 chữ số đã xác thực lịch (%s)", parsed)
+            return parsed
 
     # Trường hợp không thời hạn (nếu có nhãn hoặc không có ngày hợp lệ)
-    tokens = _tokens(" ".join(parts))
-    if "khong" in tokens and ("thoi" in tokens or "han" in tokens):
-        logger.debug("expiry_date: nhận diện không thời hạn")
-        return "Không thời hạn"
+    all_parts = parts or parts_candidate
+    if all_parts:
+        tokens = _tokens(" ".join(all_parts))
+        if "khong" in tokens and ("thoi" in tokens or "han" in tokens):
+            logger.debug("expiry_date: nhận diện không thời hạn")
+            return "Không thời hạn"
 
     logger.debug("expiry_date: không tìm thấy ngày hết hạn hợp lệ")
     return None

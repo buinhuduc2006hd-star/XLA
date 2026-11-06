@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 .venv/
 venv/
 __pycache__/
@@ -13,3 +13,5 @@ build/
 cccd-reader-api-main/uploads/*
 !cccd-reader-api-main/uploads/.gitkeep
 cccd-reader-api-main/app/uploads/
+cccd-reader-api-main/debug_output/
+cccd-reader-api-main/test_images/

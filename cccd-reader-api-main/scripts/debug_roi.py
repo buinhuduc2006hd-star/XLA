@@ -20,37 +20,24 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sys
 from pathlib import Path
+
+# Thêm thư mục gốc cccd-reader-api-main vào sys.path để import dịch vụ
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import cv2
 import numpy as np
 
-# Cấu hình ROI mặc định cho CCCD (Mẫu CCCD chip 2021 Thông tư 06/2021/TT-BCA)
-CCCD_ROIS: dict[str, tuple[float, float, float, float]] = {
-    "id_number": (0.42, 0.42, 0.88, 0.52),
-    "full_name": (0.27, 0.53, 0.61, 0.63),
-    "date_of_birth": (0.56, 0.61, 0.76, 0.70),
-    "gender": (0.46, 0.665, 0.545, 0.74),
-    "nationality": (0.81, 0.645, 0.985, 0.735),
-    "place_of_origin": (0.28, 0.79, 0.82, 0.855),
-    "residence_line_1": (0.665, 0.855, 0.93, 0.92),
-    "residence_line_2": (0.28, 0.91, 0.84, 0.985),
-    "expiry_date": (0.04, 0.78, 0.32, 0.92),
-}
-
-# Cấu hình ROI cho GPLX
-GPLX_ROIS: dict[str, tuple[float, float, float, float]] = {
-    "license_number": (0.61, 0.235, 0.86, 0.315),
-    "full_name": (0.62, 0.315, 0.85, 0.380),
-    "date_of_birth": (0.675, 0.385, 0.84, 0.455),
-    "nationality": (0.675, 0.455, 0.85, 0.525),
-    "address": (0.38, 0.580, 0.91, 0.665),
-    "license_class": (0.165, 0.795, 0.245, 0.865),
-    "expiry": (0.28, 0.895, 0.55, 0.965),
-}
-
-STANDARD_WIDTH = 1061
-BOX_PADDING = 0.008
+# Đồng bộ trực tiếp từ các service extractor (Single Source of Truth)
+from services.cccd_extractor import (
+    BOX_PADDING,
+    CCCD_ROIS,
+    STANDARD_WIDTH,
+)
+from services.gplx_extractor import GPLX_ROIS
 
 # Bảng màu hiển thị (BGR)
 COLORS = [
