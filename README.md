@@ -16,3 +16,10 @@ Vì cậu đã gặp lỗi SSL khi Flet khởi tạo lần đầu, có thể ti�
 Hoặc, sau khi Flet Desktop Client đã được tải và lưu vào máy, thử lệnh ngắn hơn:
 
 .\.venv\Scripts\flet.exe run main.py
+####
+cd "C:\Users\bui nhu duc\XLA\cccd-reader-api-main"
+
+..\.venv\Scripts\python.exe .\scripts\debug_roi.py ".\test_images\cccd_01.jpg" --card-type cccd
+
+start .\debug_output\annotated_cccd_rois.png
+####
