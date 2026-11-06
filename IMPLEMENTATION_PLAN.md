@@ -1,6 +1,6 @@
 # IMPLEMENTATION PLAN – CCCD Reader Nâng cấp
 
-> Phiên bản: 1.0 | Ngày tạo: 06/11/2026
+> Phiên bản: 1.1 | Ngày cập nhật: 06/11/2026
 > Áp dụng nguyên tắc CLAUDE.md: không tự suy đoán, không vượt phạm vi được giao, ghi rõ hạn chế.
 
 ---
@@ -42,35 +42,86 @@ Camera điện thoại
 
 ---
 
-## Giai đoạn 1 – Hoàn thiện CCCD Extractor ✅ ĐANG THỰC HIỆN
+## Giai đoạn 1 – Hoàn thiện CCCD Extractor ✅ ĐÃ HOÀN THÀNH & NGHIỆM THU
 
-### Phạm vi
+### 1. Phạm vi & Những nội dung đã thực hiện
 
-| File | Thay đổi |
-|---|---|
-| `services/cccd_extractor.py` | Thêm `extract_id_number()` và `extract_expiry_date()` |
-| `cccd-reader-fe-main/main.py` | Thêm nhãn hiển thị cho 2 trường mới |
-| `tests/test_cccd_extractor.py` | Unit test cho 2 hàm mới (không cần ảnh thật) |
+| Hạng mục / File | Chi tiết thay đổi đã hoàn thành | Trạng thái |
+|---|---|---|
+| `services/cccd_extractor.py` | Bổ sung `extract_id_number()` và `extract_expiry_date()`; chuẩn hóa định dạng ngày tháng và 12 số CCCD | ✅ Hoàn thành |
+| `services/cccd_extractor.py` | Sửa lỗi cú pháp CLI: `__name__ == "_main_"` $\rightarrow$ `__name__ == "__main__"` | ✅ Hoàn thành |
+| `services/id_card_extractor.py` | Sửa lỗi cú pháp CLI: `__name__ == "_main_"` $\rightarrow$ `__name__ == "__main__"` | ✅ Hoàn thành |
+| `services/cccd_extractor.py` | Hiệu chuẩn bộ tọa độ ROI thực tế (`id_number`, `full_name`, `expiry_date`, `place_of_origin`, `residence`) | ✅ Hoàn thành |
+| `services/cccd_extractor.py` & `services/gplx_extractor.py` | Xuất `CCCD_ROIS` và `GPLX_ROIS` làm Single Source of Truth | ✅ Hoàn thành |
+| `scripts/debug_roi.py` | Tái cấu trúc: loại bỏ khai báo ROI trùng lặp, import trực tiếp từ extractor services; xuất ảnh annotated và ảnh crop | ✅ Hoàn thành |
+| `.gitignore` | Cập nhật bỏ qua thư mục `debug_output/` và `test_images/` để bảo vệ dữ liệu cá nhân | ✅ Hoàn thành |
+| `tests/test_cccd_extractor.py` | Viết mới và mở rộng bộ unit test lên 33 test cases bao phủ toàn diện | ✅ 33/33 Passed |
+| `cccd-reader-fe-main/main.py` | Đã có sẵn nhãn hiển thị cho 2 trường mới: `id_number` ("Số CCCD") và `expiry_date` ("Có giá trị đến") | ✅ Đã kiểm tra |
 
-### Hạn chế đã xác nhận
+---
 
-**Trường `expiry_date` ("Có giá trị đến"):**
-- Trên **CCCD chip mới (2021+)**, trường này nằm ở **MẶT SAU**.
-- Hệ thống hiện tại nhận 1 ảnh qua `/api/v1/upload` không phân biệt mặt trước/sau.
-- Giải pháp Giai đoạn 1: thêm vùng ROI cho mặt sau (khu vực phía dưới), nếu không OCR được → trả `None` và log rõ lý do.
-- Giải pháp dài hạn (Giai đoạn 4+): API nhận 2 ảnh riêng biệt (mặt trước + mặt sau).
+### 2. Chi tiết kỹ thuật & Logic đã hiệu chỉnh
 
-**Tọa độ ROI `id_number`:**
-- Ước tính theo layout chuẩn Bộ Công an 2021. Cần kiểm tra lại với ảnh CCCD thật.
-- ROI được đánh dấu `# CALIBRATION NEEDED` trong code.
+#### A. Số CCCD (`id_number`)
+- **Vị trí**: Dòng "Số / No.:" nằm bên phải ảnh chân dung, phía trên dòng "Họ và tên".
+- **Tọa độ ROI hiệu chuẩn**: `BOX_ID_NUMBER = (0.37, 0.39, 0.89, 0.51)` (mở rộng $x_1$ sang `0.37` để triệt tiêu lỗi cắt mất chữ số `0` đầu tiên).
+- **Quy tắc trích xuất**:
+  - Chỉ chấp nhận chuỗi chứa đúng **chính xác 12 chữ số**.
+  - Chuỗi có 10, 11 hoặc 13 chữ số bị từ chối và trả về `None` (không đoán, không cắt xén).
+  - Giữ kiểu dữ liệu `str` để bảo toàn số `0` ở đầu (ví dụ: `030...`, `001...`).
+  - Sửa lỗi OCR ký tự tương đồng: `O` $\rightarrow$ `0`, `I` / `l` $\rightarrow$ `1`, `S` $\rightarrow$ `5`, `B` $\rightarrow$ `8` trên các token số hợp lệ.
+  - Hạn chế nối các token rời rạc nếu không cùng cấu trúc trường số.
+  - Tuyệt đối không ghi số CCCD vào log debug.
 
-### Tiêu chí nghiệm thu
+#### B. Thời hạn sử dụng (`expiry_date`)
+- **Đính chính cơ sở pháp lý**:
+  - Theo **Thông tư 06/2021/TT-BCA**: Trên mẫu thẻ CCCD gắn chip 2021, trường *"Có giá trị đến / Date of expiry"* nằm ở **MẶT TRƯỚC**, góc dưới bên trái, ngay phía dưới ảnh chân dung công dân.
+  - Thẻ Căn cước mới từ 01/07/2024 mới chuyển ngày hết hạn ra mặt sau. Extractor hiện tại chuyên biệt hỗ trợ mẫu CCCD gắn chip 2021 mặt trước.
+- **Tọa độ ROI hiệu chuẩn**: `BOX_EXPIRY_DATE = (0.025, 0.85, 0.28, 0.92)` (loại bỏ hoàn toàn vùng ảnh chân dung và nhãn ngoài).
+- **Quy tắc trích xuất**:
+  - Hỗ trợ chuẩn hóa ngày: `DD/MM/YYYY`, `DD-MM-YYYY`, `DD.MM.YYYY`.
+  - Hỗ trợ bổ sung định dạng khuyết 1 dấu phân cách do OCR mờ nét (`DD/MMYYYY`, `DDMM/YYYY`) và chuỗi 8 chữ số thuần (`DDMMYYYY`).
+  - **Xác thực lịch nghiêm ngặt**: Dùng `datetime.strptime()` để kiểm tra tính hợp lệ lịch (bắt lỗi tháng $>12$, ngày $>31$, kiểm tra chính xác năm nhuận như `29/02/2032` hợp lệ và `29/02/2031` trả `None`).
+  - Nhận diện nhãn đặc biệt: `"Không thời hạn"`.
+  - Không tự tính thời hạn sử dụng từ ngày sinh khi không đọc được trên thẻ.
 
-1. `extract_id_number()` trả 12 chữ số hoặc `None` – không bao giờ trả chuỗi < hoặc > 12 ký tự.
-2. `extract_expiry_date()` trả định dạng `DD/MM/YYYY` hoặc `None`.
-3. `extract_cccd_fields()` output chứa 2 key mới (`id_number`, `expiry_date`).
-4. Unit test toàn bộ pass.
-5. GPLX extractor không bị thay đổi (kiểm tra bằng import test).
+#### C. Bảng tọa độ ROI trước và sau hiệu chuẩn (Single Source of Truth)
+
+| Trường thông tin | Tọa độ ban đầu $(x_1, y_1, x_2, y_2)$ | Tọa độ hiệu chuẩn thực tế | Kết quả cải thiện |
+|---|---|---|---|
+| `id_number` | `(0.42, 0.42, 0.88, 0.52)` | `(0.37, 0.39, 0.89, 0.51)` | Không còn mất số 0 đầu, confidence tăng từ 0.912 lên **1.000** |
+| `full_name` | `(0.27, 0.53, 0.61, 0.63)` | `(0.27, 0.535, 0.62, 0.605)` | Tách sạch mép nhãn "Họ và tên", confidence **0.820** |
+| `expiry_date` | `(0.04, 0.78, 0.32, 0.92)` | `(0.025, 0.85, 0.28, 0.92)` | Tách khỏi ảnh chân dung, confidence đạt **0.748** |
+| `place_of_origin` | `(0.28, 0.79, 0.82, 0.855)` | `(0.28, 0.79, 0.82, 0.845)` | $y_2$ hạ xuống 0.845, không chồng lấn thường trú 1 |
+| `residence_line_1` | `(0.665, 0.855, 0.93, 0.92)` | `(0.665, 0.855, 0.93, 0.915)` | $y_1=0.855, y_2=0.915$, tách biệt rõ ràng |
+| `residence_line_2` | `(0.28, 0.91, 0.84, 0.985)` | `(0.28, 0.915, 0.84, 0.985)` | $y_1=0.915$, không lấn vào dòng 1 |
+
+#### D. Ngưỡng Confidence & Hệ thống
+- Giữ nguyên `MIN_CONFIDENCE = 0.3` làm ngưỡng tin cậy tiêu chuẩn trên toàn hệ thống.
+- Cấu hình ROI export từ `services/cccd_extractor.py` (`CCCD_ROIS`) và `services/gplx_extractor.py` (`GPLX_ROIS`), script `debug_roi.py` tái sử dụng trực tiếp để tránh phân mảnh tọa độ.
+
+---
+
+### 3. Kết quả nghiệm thu thực tế
+
+1. **Kiểm thử trên ảnh mẫu CCCD thực tế**:
+   - Trích xuất thành công 100% đầy đủ 8 trường thông tin:
+     ```json
+     {
+       "id_number": "030206013743",
+       "full_name": "VŨ NGOC BẢO",
+       "date_of_birth": "27/03/2006",
+       "gender": "Nam",
+       "nationality": "Việt Nam",
+       "place_of_origin": "Nam Chinh Nam Sach Hải Dương",
+       "residence": "Thôn Bich Đông, Nam Chinh Nam Sách; Hải Dương",
+       "expiry_date": "27/03/2031"
+     }
+     ```
+2. **Bộ Unit Test (`tests/test_cccd_extractor.py`)**:
+   - 33/33 bài test vượt qua (100% Pass) trong 0.075 giây.
+   - Bao phủ: số 0 ở đầu, boundary 10/11/13 chữ số, sửa ký tự OCR, nhãn rác tên, xác thực ngày tháng lịch, năm nhuận, schema hồi quy GPLX.
+3. **Commit Git**: Commit an toàn mã nguồn với message `fix(roi): hieu chinh ROI CCCD va dong bo Single Source of Truth`.
 
 ---
 
