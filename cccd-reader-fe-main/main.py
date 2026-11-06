@@ -32,12 +32,14 @@ CARD_TITLES: dict[str, str] = {
 
 FIELD_LABELS: dict[str, dict[str, str]] = {
     "cccd": {
+        "id_number": "Số CCCD",
         "full_name": "Họ và tên",
         "date_of_birth": "Ngày sinh",
         "gender": "Giới tính",
         "nationality": "Quốc tịch",
         "place_of_origin": "Quê quán",
         "residence": "Nơi thường trú",
+        "expiry_date": "Có giá trị đến",
     },
     "gplx": {
         "license_number": "Số GPLX",
