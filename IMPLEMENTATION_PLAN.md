@@ -125,22 +125,24 @@ Camera điện thoại
 
 ---
 
-## Giai đoạn 2 – YOLOv8n Detection
+## Giai đoạn 2 – YOLOv8n Detection ✅ ĐÃ HOÀN THÀNH PIPELINE (HUẤN LUYỆN THỰC TẾ: NOT_TESTED)
 
-### Phạm vi
+### 1. Phạm vi & File đã hoàn thành
 
-| File | Nội dung |
-|---|---|
-| `services/document_detector.py` | Wrapper YOLOv8n: load model, predict, trả bbox + class + confidence |
-| `scripts/train/dataset_prepare.py` | Tạo cấu trúc dataset YOLO format (images/labels) |
-| `scripts/train/train.py` | Script fine-tune YOLOv8n trên dataset CCCD/GPLX |
-| `scripts/train/evaluate.py` | mAP, precision, recall trên tập val |
-| `scripts/train/predict_sample.py` | Chạy thử trên ảnh đơn, vẽ bbox lên ảnh |
-| `configs/dataset.yaml` | Cấu hình dataset YOLO (nc=2, names=[cccd, gplx]) |
-| `docs/dataset_guide.md` | Hướng dẫn thu thập và gán nhãn ảnh |
+| File | Nội dung & Chức năng | Trạng thái |
+|---|---|:---:|
+| `services/document_detector.py` | Wrapper YOLOv8n: nhận diện CCCD/GPLX, input validation, Dataclass trả bbox + class + confidence, vẽ & lưu bounding box | ✅ Đã hoàn thành |
+| `configs/data.yaml` | Cấu hình dataset YOLO (nc=2, names: 0=cccd, 1=gplx) | ✅ Đã hoàn thành |
+| `datasets/` | Cấu trúc thư mục chuẩn `images/{train,val,test}`, `labels/{train,val,test}` kèm `.gitkeep` | ✅ Đã hoàn thành |
+| `scripts/train/dataset_prepare.py` | Kiểm tra toàn vẹn định dạng nhãn YOLO, phân chia train/val/test | ✅ Đã hoàn thành |
+| `scripts/train/train.py` | Script fine-tune YOLOv8n với data augmentation chuyên biệt cho tài liệu xoay/nghiêng | ✅ Đã hoàn thành |
+| `scripts/train/evaluate.py` | Đánh giá mAP50, mAP50-95, precision, recall, latency trên tập val/test | ✅ Đã hoàn thành |
+| `scripts/predict_sample.py` | Chạy thử trên ảnh đơn/thư mục, vẽ và lưu ảnh có bounding box | ✅ Đã hoàn thành |
+| `docs/dataset_guide.md` | Tài liệu hướng dẫn chi tiết thu thập và gán nhãn dataset | ✅ Đã hoàn thành |
+| `tests/test_document_detector.py` | Bộ unit test kiểm thử toàn diện các trường hợp suy luận & ngoại lệ | ✅ 14/14 Passed |
+| `STAGE2_TEST_REPORT.md` | Báo cáo chi tiết kết quả kiểm thử Giai đoạn 2 | ✅ Đã hoàn thành |
 
-### Classes
-
+### 2. Classes
 ```yaml
 nc: 2
 names:
@@ -148,11 +150,11 @@ names:
   1: gplx
 ```
 
-### Tiêu chí nghiệm thu
-
-1. `document_detector.py` import được, predict trả đúng schema khi có model.
-2. Script train chạy được với dataset mẫu nhỏ (≥ 10 ảnh/class).
-3. Có hướng dẫn rõ ràng về cách thu thập và gán nhãn.
+### 3. Kết quả nghiệm thu
+1. `document_detector.py` import và suy luận trả đúng cấu trúc Dataclass `DetectionResult` và `Detection` trên cả CPU và CUDA.
+2. Kiểm thử tự động `test_document_detector.py`: **14/14 test cases Passed (100%)** bao gồm trường hợp zero detection, single detection, multiple detections sắp xếp theo confidence, clamping tọa độ bbox, và các ca kiểm thử ảnh đầu vào không hợp lệ.
+3. Kiểm thử hồi quy Giai đoạn 1 `test_cccd_extractor.py`: **33/33 test cases Passed (100%)**, không gây bất kỳ ảnh hưởng nào đến pipeline OCR và trích xuất trường.
+4. **Trạng thái Huấn luyện Thực tế**: Đánh dấu **`NOT_TESTED`** theo đúng nguyên tắc bảo vệ quyền riêng tư, không lưu trữ dữ liệu cá nhân trên GitHub. Pipeline huấn luyện đã sẵn sàng 100% để người dùng đưa dữ liệu nội bộ vào chạy script `train.py`.
 
 ---
 

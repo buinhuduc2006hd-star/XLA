@@ -1,0 +1,15 @@
+# Cấu hình dataset YOLOv8n Document Detection (CCCD & GPLX)
+# Thư mục gốc dataset có thể cấu hình theo đường dẫn tương đối từ data.yaml hoặc tuyệt đối
+path: ../datasets
+
+train: images/train
+val: images/val
+test: images/test
+
+# Số lượng lớp (nc = number of classes)
+nc: 2
+
+# Tên các lớp
+names:
+  0: cccd
+  1: gplx

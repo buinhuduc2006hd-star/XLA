@@ -15,3 +15,14 @@ cccd-reader-api-main/uploads/*
 cccd-reader-api-main/app/uploads/
 cccd-reader-api-main/debug_output/
 cccd-reader-api-main/test_images/
+bao/
+
+# YOLO & Training artifacts
+runs/
+cccd-reader-api-main/runs/
+*.pt
+!models/placeholder.txt
+cccd-reader-api-main/datasets/images/*/*
+!cccd-reader-api-main/datasets/images/*/.gitkeep
+cccd-reader-api-main/datasets/labels/*/*
+!cccd-reader-api-main/datasets/labels/*/.gitkeep
