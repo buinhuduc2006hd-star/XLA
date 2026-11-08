@@ -152,3 +152,4 @@ Khi người dùng đã chuẩn bị dữ liệu ảnh CCCD/GPLX (theo đúng h�
 Giai đoạn 2 đã được triển khai hoàn chỉnh, đầy đủ mã nguồn, tài liệu hướng dẫn và bộ unit test tự động. Tất cả các ràng buộc về an toàn dữ liệu, tính tương thích ngược và yêu cầu kỹ thuật đều được đáp ứng tuyệt đối.
 
 Hệ thống đã sẵn sàng để bước sang **Giai đoạn 3: Document Rectifier (OpenCV Canny $\rightarrow$ 4 góc $\rightarrow$ Perspective Transform)**.
+

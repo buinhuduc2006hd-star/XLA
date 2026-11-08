@@ -226,3 +226,4 @@ if __name__ == "__main__":
             print(f"\nLỗi phát hiện ({len(report['errors'])}):")
             for e in report["errors"][:10]:
                 print(f"  [x] {e}")
+

@@ -130,3 +130,4 @@ Trước khi chạy script huấn luyện `train.py`, hãy thực hiện các b�
    ```bash
    python -m scripts.train.dataset_prepare
    ```
+

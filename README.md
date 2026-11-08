@@ -23,3 +23,16 @@ cd "C:\Users\bui nhu duc\XLA\cccd-reader-api-main"
 
 start .\debug_output\annotated_cccd_rois.png
 ####
+#### ở đây: 
+1. Chuyển vào thư mục Backend
+cd "C:\Users\bui nhu duc\XLA\cccd-reader-api-main"
+
+
+2. Chạy và hiển thị ảnh có các khung ROI
+..\.venv\Scripts\python.exe .\scripts\debug_roi.py ".\test_images\cccd_01.jpg" --card-type cccd
+
+start .\debug_output\annotated_cccd_rois.png
+
+
+3. Chạy EasyOCR và in text nhận dạng của từng ROI
+..\.venv\Scripts\python.exe -m services.cccd_extractor ".\test_images\cccd_01.jpg"
