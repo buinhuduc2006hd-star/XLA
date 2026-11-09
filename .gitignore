@@ -15,7 +15,10 @@ cccd-reader-api-main/uploads/*
 cccd-reader-api-main/app/uploads/
 cccd-reader-api-main/debug_output/
 cccd-reader-api-main/test_images/
+# Raw user dataset folders (unlabeled/personal images)
 bao/
+cccd/
+GPLX/
 
 # YOLO & Training artifacts
 runs/
