@@ -94,10 +94,29 @@ def train_yolov8n_document(
         return None
 
     # Tìm đường dẫn trọng số tốt nhất sau khi train
-    exp_dir = Path(project) / name
-    best_weights = exp_dir / "weights" / "best.pt"
+    # Ultralytics tự động tạo thư mục run (vd: train_document, train_document2, ...)
+    best_weights = None
+    if hasattr(model, "trainer") and model.trainer is not None:
+        if hasattr(model.trainer, "best") and model.trainer.best:
+            best_weights = Path(model.trainer.best)
+        elif hasattr(model.trainer, "save_dir") and model.trainer.save_dir:
+            cand = Path(model.trainer.save_dir) / "weights" / "best.pt"
+            if cand.exists():
+                best_weights = cand
 
-    if best_weights.exists():
+    # Fallback: tìm theo thư mục project/name
+    if best_weights is None or not best_weights.exists():
+        exp_dir = Path(project) / name
+        cand = exp_dir / "weights" / "best.pt"
+        if cand.exists():
+            best_weights = cand
+        else:
+            # Tìm tất cả thư mục có dạng name* sắp xếp theo thời gian mới nhất
+            all_runs = sorted(Path(project).glob(f"{name}*/weights/best.pt"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if all_runs:
+                best_weights = all_runs[0]
+
+    if best_weights and best_weights.exists():
         logger.info(f"Huấn luyện thành công! Trọng số tối ưu lưu tại: {best_weights}")
 
         # Tùy chọn sao lưu sang thư mục models/ của dự án
@@ -107,6 +126,13 @@ def train_yolov8n_document(
             target_pt = dest_dir / "yolov8n_document.pt"
             shutil.copy2(best_weights, target_pt)
             logger.info(f"Đã sao chép model sang: {target_pt}")
+
+            # Đồng thời sao chép sang thư mục models/ ở root repository (nếu khác dest_dir)
+            root_models_dir = Path(__file__).resolve().parent.parent.parent.parent / "models"
+            if root_models_dir.resolve() != dest_dir.resolve():
+                root_models_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(best_weights, root_models_dir / "yolov8n_document.pt")
+                logger.info(f"Đã sao chép model sang: {root_models_dir / 'yolov8n_document.pt'}")
 
         return best_weights
 

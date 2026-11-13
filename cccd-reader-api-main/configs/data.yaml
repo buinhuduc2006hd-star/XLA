@@ -1,6 +1,6 @@
 # Cấu hình dataset YOLOv8n Document Detection (CCCD & GPLX)
-# Thư mục gốc dataset có thể cấu hình theo đường dẫn tương đối từ data.yaml hoặc tuyệt đối
-path: ../datasets
+# Thư mục gốc dataset khi thực thi từ thư mục cccd-reader-api-main
+path: datasets
 
 train: images/train
 val: images/val

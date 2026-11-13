@@ -154,7 +154,17 @@ names:
 1. `document_detector.py` import và suy luận trả đúng cấu trúc Dataclass `DetectionResult` và `Detection` trên cả CPU và CUDA.
 2. Kiểm thử tự động `test_document_detector.py`: **14/14 test cases Passed (100%)** bao gồm trường hợp zero detection, single detection, multiple detections sắp xếp theo confidence, clamping tọa độ bbox, và các ca kiểm thử ảnh đầu vào không hợp lệ.
 3. Kiểm thử hồi quy Giai đoạn 1 `test_cccd_extractor.py`: **33/33 test cases Passed (100%)**, không gây bất kỳ ảnh hưởng nào đến pipeline OCR và trích xuất trường.
-4. **Trạng thái Huấn luyện Thực tế**: Đánh dấu **`NOT_TESTED`** theo đúng nguyên tắc bảo vệ quyền riêng tư, không lưu trữ dữ liệu cá nhân trên GitHub. Pipeline huấn luyện đã sẵn sàng 100% để người dùng đưa dữ liệu nội bộ vào chạy script `train.py`.
+4. **Chuẩn bị và Gộp Dataset Roboflow (13/11/2026)**:
+   - Audit dữ liệu nguồn: 140 ảnh CCCD (`cccd.yolov8`), 312 ảnh GPLX (`gplx.yolov8`). Toàn bộ 452 file nhãn chuẩn YOLO normalized, không có nhãn rỗng hay tọa độ bất thường.
+   - Gộp thành công vào `cccd-reader-api-main/datasets/`:
+     - Train: 316 ảnh (98 CCCD, 218 GPLX)
+     - Val: 90 ảnh (28 CCCD, 62 GPLX)
+     - Test: 46 ảnh (14 CCCD, 32 GPLX)
+   - Chuyển đổi class ID: CCCD = `0`, GPLX từ `0` $\rightarrow$ `1`. Thêm tiền tố `cccd_`, `gplx_` vào tên file để chống trùng lặp.
+   - Hiệu chỉnh cấu hình `configs/data.yaml` tương thích với đường dẫn làm việc của Ultralytics (`path: datasets`).
+   - Kiểm thử toàn diện (`verify_merged_dataset.py`): 452/452 ảnh & nhãn hợp lệ, YOLO DataLoader quét và nạp dữ liệu thành công trên CPU không có lỗi.
+   - Bảo mật dữ liệu riêng tư: `.gitignore` bảo vệ tuyệt đối không đưa dataset, ảnh thẻ hoặc checkpoint `.pt` lên GitHub.
+5. **Trạng thái Huấn luyện Thực tế**: Pipeline huấn luyện sẵn sàng thực thi lệnh fine-tune trên CPU (đã tải `yolov8n.pt`). Cung cấp sẵn kịch bản chạy thử nghiệm 10 epochs và huấn luyện đầy đủ 50 epochs.
 
 ---
 

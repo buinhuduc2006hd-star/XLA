@@ -19,13 +19,17 @@ cccd-reader-api-main/test_images/
 bao/
 cccd/
 GPLX/
+cccd.yolov8/
+gplx.yolov8/
 
 # YOLO & Training artifacts
 runs/
 cccd-reader-api-main/runs/
 *.pt
+*.cache
 !models/placeholder.txt
 cccd-reader-api-main/datasets/images/*/*
 !cccd-reader-api-main/datasets/images/*/.gitkeep
 cccd-reader-api-main/datasets/labels/*/*
+cccd-reader-api-main/datasets/labels/*.cache
 !cccd-reader-api-main/datasets/labels/*/.gitkeep
