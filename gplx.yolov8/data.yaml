@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['gplx']
+
+roboflow:
+  workspace: b24dcdk008s-workspace
+  project: gplx-mcyyy
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/b24dcdk008s-workspace/gplx-mcyyy/dataset/1
