@@ -291,7 +291,9 @@ class DocumentDetector:
         h, w = bgr.shape[:2]
         line_thickness = max(2, int(round(min(h, w) * 0.003)))
 
-        for det in detections:
+        det_list = detections.detections if hasattr(detections, "detections") else detections
+
+        for det in det_list:
             x1, y1, x2, y2 = det.bbox_xyxy
             color = CLASS_COLORS.get(det.class_name.lower(), CLASS_COLORS["default"])
 
