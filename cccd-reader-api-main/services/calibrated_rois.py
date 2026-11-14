@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Callable
 
 import cv2
@@ -137,8 +138,10 @@ def _ocr_region_smart(
     custom_preprocessor: Callable[[np.ndarray], np.ndarray] | None = None,
     fast_mode: bool = False,
 ) -> list[str]:
-    """OCR vùng ROI với Early Exit khi kết quả thỏa mãn validator và hỗ trợ preprocessor tùy biến."""
+    """OCR vùng ROI với Early Exit khi kết quả thỏa mãn validator, hỗ trợ profiling và bảo vệ PII."""
+    t_start = time.perf_counter()
     crop = _crop_region(image, field, box)
+    h_c, w_c = crop.shape[:2]
 
     variants = list(PREPROCESS_VARIANTS)
     if custom_preprocessor is not None:
@@ -150,32 +153,63 @@ def _ocr_region_smart(
 
     best_parts: list[str] = []
     best_weight: float = -1.0
+    ocr_calls = 0
+    total_prep_ms = 0.0
+    total_ocr_ms = 0.0
+    early_exit_used = False
 
     for name, prep in variants:
+        t_p0 = time.perf_counter()
         try:
-            cand = _run_ocr(prep(crop), field, name, min_confidence=min_confidence)
+            prepped = prep(crop)
         except Exception as e:
-            logger.debug(f"Preprocess variant {name} failed: {e}")
+            logger.debug(f"Preprocess variant {name} failed: {type(e).__name__}")
             continue
+        total_prep_ms += (time.perf_counter() - t_p0) * 1000.0
+
+        t_o0 = time.perf_counter()
+        try:
+            cand = _run_ocr(prepped, field, name, min_confidence=min_confidence)
+            ocr_calls += 1
+        except Exception as e:
+            logger.debug(f"OCR variant {name} failed: {type(e).__name__}")
+            continue
+        total_ocr_ms += (time.perf_counter() - t_o0) * 1000.0
 
         if cand.parts:
             # Nếu có validator và bất kỳ phần nào thỏa mãn -> Early Exit ngay lập tức!
             if validator:
                 for p in cand.parts:
                     if validator(p):
-                        logger.debug(f"{field} Early Exit via validator on variant '{name}': '{p}'")
-                        return cand.parts
+                        early_exit_used = True
+                        logger.debug(f"{field} Early Exit via validator on variant '{name}' (len={len(p)})")
+                        best_parts = cand.parts
+                        break
+                if early_exit_used:
+                    break
+
                 joined = " ".join(cand.parts)
                 if validator(joined):
-                    logger.debug(f"{field} Early Exit via validator (joined) on variant '{name}'")
-                    return cand.parts
+                    early_exit_used = True
+                    logger.debug(f"{field} Early Exit via validator (joined) on variant '{name}' (len={len(joined)})")
+                    best_parts = cand.parts
+                    break
 
             if fast_mode:
-                return cand.parts
+                best_parts = cand.parts
+                break
 
             if cand.weight > best_weight:
                 best_weight = cand.weight
                 best_parts = cand.parts
+
+    total_time_ms = (time.perf_counter() - t_start) * 1000.0
+    # Profiling log không chứa bất kỳ nội dung OCR nhạy cảm nào (PII-safe):
+    logger.debug(
+        f"ROI Profile [{field}]: dims={w_c}x{h_c}, ocr_calls={ocr_calls}, "
+        f"prep_ms={total_prep_ms:.1f}, ocr_ms={total_ocr_ms:.1f}, "
+        f"early_exit={early_exit_used}, retries={max(0, ocr_calls - 1)}, total_ms={total_time_ms:.1f}"
+    )
 
     return best_parts
 

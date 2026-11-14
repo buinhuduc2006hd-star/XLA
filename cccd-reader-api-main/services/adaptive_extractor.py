@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -271,12 +272,12 @@ def _extract_single_baseline_field(
             "license_class": extract_gplx_class_baseline,
             "expiry": extract_gplx_exp_baseline,
         }
-    func = extract_extractors = extractors.get(field_name)
+    func = extractors.get(field_name)
     if func:
         try:
             return func(norm)
         except Exception as e:
-            logger.debug(f"Baseline extraction for {field_name} failed: {e}")
+            logger.debug(f"Baseline extraction for {field_name} failed: {type(e).__name__}")
             return None
     return None
 
@@ -286,6 +287,8 @@ def extract_adaptive_pipeline_e(
     yolo_crop: np.ndarray,
     card_type: str,
     mode: str = "accurate",
+    max_fallbacks_per_doc: int = 3,
+    max_fallback_time_sec: float = 60.0,
 ) -> ExtractionResult:
     """Pipeline E: Calibrated ROIs + Smart Early-Exit + Field-Level Fallback.
 
@@ -294,7 +297,10 @@ def extract_adaptive_pipeline_e(
         yolo_crop: Ảnh crop gốc từ YOLO bounding box.
         card_type: 'cccd' hoặc 'gplx'.
         mode: 'fast' (1 pass, không retry/fallback) hoặc 'accurate' (adaptive prep, bounded retry).
+        max_fallbacks_per_doc: Ngân sách số lần fallback tối đa cho một tài liệu (ngăn ngừa runaway latency).
+        max_fallback_time_sec: Thời gian tối đa dành cho fallback trước khi ngắt an toàn.
     """
+    t_start = time.perf_counter()
     is_fast = (str(mode).lower() == "fast")
 
     # Bước 1: Trích xuất chính trên ảnh Rectified bằng Calibrated ROIs
@@ -329,12 +335,24 @@ def extract_adaptive_pipeline_e(
                 fallback_used[fld] = False
                 fallback_sources[fld] = "rectified" if val else "unextracted"
             else:
-                # Accurate mode: Kích hoạt Field-Level Fallback (Bounded: Tối đa 1 lần fallback/trường)
+                # Accurate mode: Kiểm tra ngân sách xử lý (Bounded Retry & Latency Guard)
+                elapsed_sec = time.perf_counter() - t_start
+                if total_fallbacks >= max_fallbacks_per_doc or elapsed_sec >= max_fallback_time_sec:
+                    logger.warning(
+                        f"Fallback budget exceeded (used={total_fallbacks}/{max_fallbacks_per_doc}, "
+                        f"elapsed={elapsed_sec:.1f}s/{max_fallback_time_sec}s). "
+                        f"Skipping fallback for field '{fld}' to prevent latency runaway."
+                    )
+                    valid_flags[fld] = False
+                    fallback_used[fld] = False
+                    fallback_sources[fld] = "rectified" if val else "unextracted"
+                    continue
+
                 total_fallbacks += 1
                 fallback_used[fld] = True
-                logger.debug(f"Triggering field fallback for '{fld}' (initial val='{val}')")
+                logger.debug(f"Triggering field fallback for '{fld}' (initial_valid=False, has_value={bool(val)})")
 
-                # Fallback Thử nghiệm: Trích xuất từ YOLO Crop qua baseline extractor
+                # Fallback: Trích xuất từ YOLO Crop qua baseline extractor
                 recovered_val = _extract_single_baseline_field(yolo_crop, card_type, fld)
 
                 if validator(recovered_val):
@@ -342,7 +360,7 @@ def extract_adaptive_pipeline_e(
                     valid_flags[fld] = True
                     fallback_sources[fld] = "yolo_crop_baseline"
                     successful_fallbacks += 1
-                    logger.debug(f"Field fallback SUCCEEDED for '{fld}' -> '{recovered_val}'")
+                    logger.debug(f"Field fallback SUCCEEDED for '{fld}'")
                 else:
                     # Nếu vẫn không đạt validator, giữ giá trị tốt hơn giữa val và recovered_val
                     final_fields[fld] = val or recovered_val

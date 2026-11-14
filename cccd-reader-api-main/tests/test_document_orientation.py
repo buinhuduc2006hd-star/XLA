@@ -20,8 +20,14 @@ Kiểm thử toàn diện 15 tiêu chí yêu cầu trong Nhiệm vụ G:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import cv2
 import numpy as np

@@ -28,7 +28,7 @@ from schemas import (
     TimingInfo,
 )
 from services.adaptive_extractor import extract_adaptive_pipeline_e
-from services.document_detector import DocumentDetector
+from services.document_detector import DocumentDetector, ModelConfigurationError
 from services.document_orientation import DocumentOrientationCorrector
 from services.document_rectifier import DocumentRectifier
 
@@ -89,11 +89,11 @@ def get_document_detector(model_path: str | Path | None = None) -> DocumentDetec
             if _DETECTOR_INSTANCE is None:
                 # Tìm đường dẫn model mặc định nếu chưa truyền
                 if model_path is None:
-                    # Ưu tiên model fine-tune trong cccd-reader-api-main/models/
+                    api_root = Path(__file__).resolve().parent.parent
                     candidates = [
+                        api_root / "models" / "yolov8n_document.pt",
                         Path("models/yolov8n_document.pt"),
                         Path("cccd-reader-api-main/models/yolov8n_document.pt"),
-                        Path("yolov8n.pt"),
                     ]
                     for c in candidates:
                         if c.exists():
@@ -191,8 +191,11 @@ def process_document_v2(
     top_det = det_result.top_detection
     detected_type = top_det.class_name.lower()
     if detected_type not in ("cccd", "gplx"):
-        # Dự phòng trường hợp class không chuẩn
-        detected_type = "cccd"
+        # Không tự động chuyển đổi class lạ thành 'cccd'
+        raise NoDocumentDetectedError(
+            f"Detected object '{top_det.class_name}' is not a recognized document type (cccd/gplx)",
+            details={"detected_class": top_det.class_name, "confidence": round(top_det.confidence, 4)},
+        )
 
     # Kiểm tra bộ lọc loại giấy tờ nếu người dùng chỉ định
     if doc_type_req != "auto" and detected_type != doc_type_req:

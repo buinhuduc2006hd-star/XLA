@@ -236,10 +236,10 @@ def _run_ocr(
         results = read_text(str(crop_path))
 
     logger.debug(
-        "%s [%s] raw OCR: %s",
+        "%s [%s] OCR extracted %d candidates",
         field,
         variant,
-        [(item["text"], round(float(item["confidence"]), 2)) for item in results],
+        len(results),
     )
 
     kept = [
@@ -443,7 +443,7 @@ def extract_expiry_date(image: np.ndarray) -> str | None:
     for text in parts:
         parsed = _parse_date_string(text)
         if parsed:
-            logger.debug("expiry_date: trích xuất ngày hợp lệ thành công (%s)", parsed)
+            logger.debug("expiry_date: trích xuất ngày hợp lệ thành công")
             return parsed
 
     # 2. Bổ sung: kiểm tra khi ngày ở góc thẻ có độ tương phản/độ phân giải thấp
@@ -452,7 +452,7 @@ def extract_expiry_date(image: np.ndarray) -> str | None:
     for text in parts_candidate:
         parsed = _parse_date_string(text)
         if parsed:
-            logger.debug("expiry_date: trích xuất ngày từ 8 chữ số đã xác thực lịch (%s)", parsed)
+            logger.debug("expiry_date: trích xuất ngày từ 8 chữ số đã xác thực lịch")
             return parsed
 
     # Trường hợp không thời hạn (nếu có nhãn hoặc không có ngày hợp lệ)

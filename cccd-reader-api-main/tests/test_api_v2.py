@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import cv2
 import numpy as np
+from PIL import Image
 from fastapi.testclient import TestClient
 
 from main import app
@@ -616,6 +617,156 @@ class TestAPIV2Unit(unittest.TestCase):
         self.assertIn("data", data)
         self.assertEqual(data["data"]["card_type"], "cccd")
         self.assertEqual(data["data"]["id_number"], "030206013743")
+
+    # -----------------------------------------------------------------------
+    # 18. Chunked Streaming Upload Size Protection (413 Payload Too Large)
+    # -----------------------------------------------------------------------
+    def test_chunked_upload_oversized_413(self):
+        """File upload vượt quá 15MB bị ngắt ngay lập tức, trả mã HTTP 413."""
+        # Tạo payload giả lập > 15MB (15MB + 128KB)
+        oversized_bytes = b"x" * (15 * 1024 * 1024 + 128 * 1024)
+        response = self.client.post(
+            "/api/v2/upload",
+            files={"file": ("huge_file.jpg", oversized_bytes, "image/jpeg")},
+        )
+        self.assertEqual(response.status_code, 413)
+        data = response.json()
+        self.assertEqual(data["error_code"], "FILE_TOO_LARGE")
+        self.assertIn("details", data)
+        self.assertGreater(data["details"]["file_size_bytes"], 15 * 1024 * 1024)
+
+    # -----------------------------------------------------------------------
+    # 19. Magic Bytes Validation (Chặn file giả mạo extension)
+    # -----------------------------------------------------------------------
+    def test_magic_bytes_invalid_rejected(self):
+        """File có đuôi .jpg nhưng nội dung là text thường bị từ chối với HTTP 400 INVALID_IMAGE."""
+        fake_jpg_content = b"THIS IS NOT A VALID JPEG IMAGE BUFFER AT ALL"
+        response = self.client.post(
+            "/api/v2/upload",
+            files={"file": ("malicious.jpg", fake_jpg_content, "image/jpeg")},
+        )
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data["error_code"], "INVALID_IMAGE")
+        self.assertIn("magic bytes", data["message"].lower())
+
+    # -----------------------------------------------------------------------
+    # 20. Decompression Bomb Pre-check Protection (> 36 Megapixels)
+    # -----------------------------------------------------------------------
+    def test_decompression_bomb_precheck_rejected(self):
+        """Ảnh có kích thước 6500x6000 (39MP > 36MP) bị Pillow chặn ở header, không giải mã BGR."""
+        buf = io.BytesIO()
+        bomb_img = Image.new("RGB", (6500, 6000), color="white")
+        bomb_img.save(buf, format="JPEG")
+        bomb_bytes = buf.getvalue()
+
+        response = self.client.post(
+            "/api/v2/upload",
+            files={"file": ("bomb.jpg", bomb_bytes, "image/jpeg")},
+        )
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data["error_code"], "IMAGE_TOO_LARGE")
+        self.assertIn("safety limit", data["message"])
+
+    # -----------------------------------------------------------------------
+    # 21. Model Validation: Checkpoint không tồn tại -> ModelConfigurationError
+    # -----------------------------------------------------------------------
+    def test_model_missing_checkpoint_raises_error(self):
+        """Detector raise ModelConfigurationError rõ ràng khi checkpoint không tồn tại."""
+        from services.document_detector import DocumentDetector, ModelConfigurationError
+        with self.assertRaises(ModelConfigurationError):
+            DocumentDetector(model_path="non_existent_path_xyz_123.pt")
+
+    # -----------------------------------------------------------------------
+    # 22. Model Validation: Sai Class Mapping -> ModelConfigurationError
+    # -----------------------------------------------------------------------
+    @patch("services.document_detector.YOLO")
+    def test_model_invalid_classes_raises_error(self, mock_yolo_cls):
+        """Detector từ chối model nếu classes không có cccd/gplx (ví dụ COCO 80 classes)."""
+        from services.document_detector import DocumentDetector, ModelConfigurationError
+        mock_instance = MagicMock()
+        mock_instance.names = {0: "person", 1: "bicycle", 2: "car"}
+        mock_yolo_cls.return_value = mock_instance
+
+        with self.assertRaises(ModelConfigurationError):
+            DocumentDetector(model_path="dummy.pt", validate_classes=True)
+
+    # -----------------------------------------------------------------------
+    # 23. Class không xác định -> Không mặc định chuyển thành 'cccd'
+    # -----------------------------------------------------------------------
+    def test_unrecognized_detection_class_rejected(self):
+        """Khi YOLO phát hiện object không thuộc 'cccd' hay 'gplx', raise NoDocumentDetectedError."""
+        from services.pipeline_v2 import process_document_v2, NoDocumentDetectedError
+        mock_detector = MagicMock()
+        mock_detector.detect.return_value = DetectionResult(
+            detections=[Detection(0, "unknown_passport", 0.92, (10, 10, 200, 200))],
+            image_shape=(300, 400),
+            device="cpu",
+            has_detection=True,
+            top_detection=Detection(0, "unknown_passport", 0.92, (10, 10, 200, 200)),
+        )
+        dummy_img = np.zeros((300, 400, 3), dtype=np.uint8)
+
+        with self.assertRaises(NoDocumentDetectedError) as ctx:
+            process_document_v2(image=dummy_img, detector=mock_detector)
+        self.assertIn("unknown_passport", ctx.exception.message)
+
+    # -----------------------------------------------------------------------
+    # 24. PII Protection: Không rò rỉ dữ liệu cá nhân trong logs
+    # -----------------------------------------------------------------------
+    def test_no_pii_in_logging(self):
+        """Xác nhận không xuất hiện số CCCD, họ tên hay dữ liệu nhạy cảm trong log."""
+        import logging
+        from services.calibrated_rois import _ocr_region_smart
+        from services.adaptive_extractor import extract_adaptive_pipeline_e
+
+        sensitive_id = "030206013743"
+        sensitive_name = "VŨ NGỌC BẢO"
+
+        logger = logging.getLogger()
+        with self.assertLogs(logger, level="DEBUG") as captured:
+            dummy_crop = np.zeros((50, 200, 3), dtype=np.uint8)
+            # Giả lập OCR trả về số CCCD nhạy cảm
+            with patch("services.calibrated_rois._run_ocr") as mock_run_ocr:
+                mock_cand = MagicMock()
+                mock_cand.parts = [sensitive_id]
+                mock_cand.weight = 10.0
+                mock_run_ocr.return_value = mock_cand
+
+                _ocr_region_smart(
+                    image=np.zeros((100, 100, 3), dtype=np.uint8),
+                    field="id_number",
+                    box=(0.1, 0.1, 0.5, 0.5),
+                    validator=lambda s: len(s) == 12,
+                    fast_mode=True,
+                )
+
+        # Kiểm tra toàn bộ log captured không chứa chuỗi PII thô
+        full_log_text = "\n".join(captured.output)
+        self.assertNotIn(sensitive_id, full_log_text, "Rò rỉ số CCCD trong log!")
+        self.assertNotIn(sensitive_name, full_log_text, "Rò rỉ họ tên trong log!")
+
+    # -----------------------------------------------------------------------
+    # 25. Concurrency Semaphore & Exception Release Verification
+    # -----------------------------------------------------------------------
+    def test_concurrency_semaphore_exception_release(self):
+        """Xác nhận semaphore được giải phóng an toàn 100% khi xảy ra lỗi."""
+        from main import _INFERENCE_SEMAPHORE
+
+        # Ban đầu semaphore có 1 slot
+        self.assertEqual(_INFERENCE_SEMAPHORE._value, 1)
+
+        # Gọi endpoint với mock gây ra RuntimeError trong hàm xử lý
+        with patch("main.process_document_v2", side_effect=RuntimeError("Test crash")):
+            response = self.client.post(
+                "/api/v2/upload",
+                files={"file": ("test.jpg", self.valid_jpg_bytes, "image/jpeg")},
+            )
+            self.assertEqual(response.status_code, 500)
+
+        # Semaphore bắt buộc phải được giải phóng về 1
+        self.assertEqual(_INFERENCE_SEMAPHORE._value, 1, "Semaphore không được giải phóng sau exception!")
 
 
 if __name__ == "__main__":

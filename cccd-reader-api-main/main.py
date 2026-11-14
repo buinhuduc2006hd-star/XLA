@@ -12,8 +12,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import io
 import cv2
 import numpy as np
+from PIL import Image
+
+# Giới hạn OpenCV dùng 1 luồng để tránh cạnh tranh tài nguyên CPU với PyTorch / EasyOCR
+cv2.setNumThreads(1)
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -24,6 +29,7 @@ from services.id_card_extractor import extract_id_card_fields
 from services.pipeline_v2 import (
     DocumentTypeMismatchError,
     InvalidImageError,
+    ModelConfigurationError,
     NoDocumentDetectedError,
     PipelineV2Error,
     get_document_detector,
@@ -40,8 +46,28 @@ MIN_IMAGE_DIMENSION = 10                # 10x10 px tối thiểu
 ALLOWED_EXTENSIONS_V1 = {".jpg", ".jpeg", ".png"}
 ALLOWED_EXTENSIONS_V2 = {".jpg", ".jpeg", ".png", ".webp"}
 
-# Semaphore kiểm soát xử lý suy luận đồng thời trên CPU (tránh cạnh tranh CPU/RAM)
+# Semaphore kiểm soát xử lý suy luận đồng thời trên CPU (tránh cạnh tranh CPU/RAM).
+# Kiến trúc Concurrency Audit:
+# 1. Semaphore(1) tuần tự hóa các tác vụ suy luận nặng trên CPU (YOLO + EasyOCR), ngăn ngừa tràn RAM trên 8GB RAM.
+# 2. Xử lý qua asyncio.to_thread() giải phóng Event Loop, đảm bảo /health và /docs luôn phản hồi tức thì (< 5ms).
+# 3. Sử dụng 'async with' đảm bảo semaphore luôn được giải phóng an toàn ngay cả khi OCR phát sinh exception.
+# 4. Khi client ngắt kết nối/timeout, coroutine bị cancel thì async with context manager vẫn tự động giải phóng semaphore.
+# 5. Lưu ý Production: Semaphore(1) nằm trong RAM của 1 process Python; nếu chạy Uvicorn multi-worker (--workers > 1)
+#    sẽ phá vỡ cơ chế này và gây quá tải CPU/RAM. Do đó Uvicorn BẮT BUỘC chạy với --workers 1 trên môi trường CPU 8GB RAM.
 _INFERENCE_SEMAPHORE = asyncio.Semaphore(1)
+
+
+def _detect_and_validate_magic_bytes(content: bytes) -> str | None:
+    """Xác thực định dạng ảnh qua magic bytes nhị phân thực tế (không tin cậy mime/extension client gửi)."""
+    if len(content) < 12:
+        return None
+    if content.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return "webp"
+    return None
 
 
 @asynccontextmanager
@@ -179,11 +205,25 @@ async def upload_image_v2(
             ).model_dump(),
         )
 
-    # 2. Đọc nội dung file vào bộ nhớ
+    # 2. Đọc nội dung file theo chunk để tránh nạp toàn bộ file quá giới hạn vào RAM
+    chunks: list[bytes] = []
+    total_bytes = 0
+    chunk_size = 64 * 1024  # 64 KB
+    is_too_large = False
+
     try:
-        content = await file.read()
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > MAX_FILE_SIZE_BYTES:
+                is_too_large = True
+                del chunks
+                break
+            chunks.append(chunk)
     except Exception as e:
-        logger.error(f"Lỗi khi đọc file upload: {e}")
+        logger.error(f"Lỗi khi đọc file upload: {type(e).__name__}")
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=ErrorResponse(
@@ -193,7 +233,17 @@ async def upload_image_v2(
         )
 
     # 3. Kiểm tra dung lượng
-    if len(content) == 0:
+    if is_too_large:
+        return JSONResponse(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            content=ErrorResponse(
+                error_code="FILE_TOO_LARGE",
+                message=f"File size exceeds maximum allowed limit of {MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB",
+                details={"file_size_bytes": total_bytes, "max_bytes": MAX_FILE_SIZE_BYTES},
+            ).model_dump(),
+        )
+
+    if total_bytes == 0:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=ErrorResponse(
@@ -202,31 +252,32 @@ async def upload_image_v2(
             ).model_dump(),
         )
 
-    if len(content) > MAX_FILE_SIZE_BYTES:
-        return JSONResponse(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            content=ErrorResponse(
-                error_code="FILE_TOO_LARGE",
-                message=f"File size exceeds maximum allowed limit of {MAX_FILE_SIZE_BYTES // (1024 * 1024)}MB",
-                details={"file_size_bytes": len(content), "max_bytes": MAX_FILE_SIZE_BYTES},
-            ).model_dump(),
-        )
+    content = b"".join(chunks)
 
-    # 4. Giải mã ảnh trực tiếp trong RAM (không lưu file tạm xuống đĩa)
-    np_buf = np.frombuffer(content, dtype=np.uint8)
-    image = cv2.imdecode(np_buf, cv2.IMREAD_COLOR)
-
-    if image is None:
+    # 4. Kiểm tra magic bytes thực tế để xác thực định dạng ảnh (không tin cậy extension/MIME)
+    detected_format = _detect_and_validate_magic_bytes(content)
+    if detected_format is None:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=ErrorResponse(
                 error_code="INVALID_IMAGE",
-                message="Failed to decode image. File may be corrupted or not a valid image format",
+                message="File content does not match any allowed image format (JPEG, PNG, WEBP) magic bytes",
             ).model_dump(),
         )
 
-    # 5. Kiểm tra kích thước và phòng vệ Decompression Bomb
-    h, w = image.shape[:2]
+    # 5. Kiểm tra metadata kích thước ảnh bằng Pillow trước khi giải mã mảng BGR (Chống Decompression Bomb)
+    try:
+        with Image.open(io.BytesIO(content)) as pil_img:
+            w, h = pil_img.size
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=ErrorResponse(
+                error_code="INVALID_IMAGE",
+                message="Failed to parse image header. File may be corrupted or not a valid image format",
+            ).model_dump(),
+        )
+
     if h < MIN_IMAGE_DIMENSION or w < MIN_IMAGE_DIMENSION:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -243,6 +294,19 @@ async def upload_image_v2(
             content=ErrorResponse(
                 error_code="IMAGE_TOO_LARGE",
                 message=f"Image resolution ({w}x{h} = {total_pixels} pixels) exceeds safety limit of {MAX_IMAGE_PIXELS} pixels",
+            ).model_dump(),
+        )
+
+    # 6. Giải mã ảnh trực tiếp trong RAM (chỉ thực hiện sau khi đã kiểm tra an toàn metadata)
+    np_buf = np.frombuffer(content, dtype=np.uint8)
+    image = cv2.imdecode(np_buf, cv2.IMREAD_COLOR)
+
+    if image is None:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=ErrorResponse(
+                error_code="INVALID_IMAGE",
+                message="Failed to decode image into pixel matrix",
             ).model_dump(),
         )
 
@@ -305,6 +369,17 @@ async def upload_image_v2(
                 error_code=e.error_code,
                 message=e.message,
                 details=e.details,
+            ).model_dump(),
+        )
+
+    except ModelConfigurationError as e:
+        logger.error(f"Lỗi cấu hình mô hình YOLO: {type(e).__name__}")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=ErrorResponse(
+                error_code="MODEL_CONFIGURATION_ERROR",
+                message="YOLO document detection model is not properly configured or missing",
+                details={"error": e.message if hasattr(e, "message") else str(e)},
             ).model_dump(),
         )
 
