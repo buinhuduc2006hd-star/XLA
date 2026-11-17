@@ -26,6 +26,8 @@ from services.cccd_extractor import (
     BOX_PADDING,
     MIN_CONFIDENCE,
     Box,
+    OcrCandidate,
+    OcrLine,
     _crop_region,
     _normalize_width,
     _ocr_region,
@@ -34,6 +36,12 @@ from services.cccd_extractor import (
     _clean_id_candidate,
     PREPROCESS_VARIANTS,
     _run_ocr,
+)
+from services.field_cleaner import (
+    clean_full_name,
+    clean_place_of_origin,
+    clean_residence,
+    has_label_contamination,
 )
 from services.gplx_extractor import (
     _CLASS_DIGIT_FIXES,
@@ -51,13 +59,13 @@ logger = logging.getLogger(__name__)
 
 # Tọa độ chuẩn hóa (x1, y1, x2, y2) trên không gian ảnh nắn phẳng [0, 1]
 RECTIFIED_BOX_CCCD_ID_NUMBER: Box = (0.37, 0.36, 0.88, 0.51)
-RECTIFIED_BOX_CCCD_FULL_NAME: Box = (0.28, 0.49, 0.72, 0.59)  # y2 thu gọn về 0.59 tránh lấn dòng ngày sinh
+RECTIFIED_BOX_CCCD_FULL_NAME: Box = (0.28, 0.515, 0.75, 0.605)  # y1 hạ xuống 0.515 tránh nhãn 'Họ và tên / Full name'
 RECTIFIED_BOX_CCCD_DATE_OF_BIRTH: Box = (0.52, 0.59, 0.88, 0.71)  # mở rộng x1 sang 0.52
 RECTIFIED_BOX_CCCD_GENDER: Box = (0.44, 0.63, 0.62, 0.73)
 RECTIFIED_BOX_CCCD_NATIONALITY: Box = (0.78, 0.63, 0.99, 0.74)
-RECTIFIED_BOX_CCCD_PLACE_OF_ORIGIN: Box = (0.28, 0.70, 0.92, 0.83)
-RECTIFIED_BOX_CCCD_RESIDENCE_LINE_1: Box = (0.42, 0.80, 0.98, 0.90)
-RECTIFIED_BOX_CCCD_RESIDENCE_LINE_2: Box = (0.28, 0.86, 0.95, 0.97)
+RECTIFIED_BOX_CCCD_PLACE_OF_ORIGIN: Box = (0.28, 0.71, 0.94, 0.84)
+RECTIFIED_BOX_CCCD_RESIDENCE_LINE_1: Box = (0.50, 0.81, 0.98, 0.90)  # x1 nâng lên 0.50 tránh nhãn 'Place of residence' bên trái
+RECTIFIED_BOX_CCCD_RESIDENCE_LINE_2: Box = (0.28, 0.87, 0.96, 0.98)
 RECTIFIED_BOX_CCCD_EXPIRY_DATE: Box = (0.02, 0.74, 0.38, 0.94)
 
 RECTIFIED_CCCD_ROIS: dict[str, Box] = {
@@ -137,7 +145,8 @@ def _ocr_region_smart(
     min_confidence: float = 0.25,
     custom_preprocessor: Callable[[np.ndarray], np.ndarray] | None = None,
     fast_mode: bool = False,
-) -> list[str]:
+    return_candidate: bool = False,
+) -> list[str] | OcrCandidate:
     """OCR vùng ROI với Early Exit khi kết quả thỏa mãn validator, hỗ trợ profiling và bảo vệ PII."""
     t_start = time.perf_counter()
     crop = _crop_region(image, field, box)
@@ -152,6 +161,7 @@ def _ocr_region_smart(
         variants = [variants[0]]
 
     best_parts: list[str] = []
+    best_candidate: OcrCandidate | None = None
     best_weight: float = -1.0
     ocr_calls = 0
     total_prep_ms = 0.0
@@ -184,6 +194,7 @@ def _ocr_region_smart(
                         early_exit_used = True
                         logger.debug(f"{field} Early Exit via validator on variant '{name}' (len={len(p)})")
                         best_parts = cand.parts
+                        best_candidate = cand
                         break
                 if early_exit_used:
                     break
@@ -193,15 +204,18 @@ def _ocr_region_smart(
                     early_exit_used = True
                     logger.debug(f"{field} Early Exit via validator (joined) on variant '{name}' (len={len(joined)})")
                     best_parts = cand.parts
+                    best_candidate = cand
                     break
 
             if fast_mode:
                 best_parts = cand.parts
+                best_candidate = cand
                 break
 
             if cand.weight > best_weight:
                 best_weight = cand.weight
                 best_parts = cand.parts
+                best_candidate = cand
 
     total_time_ms = (time.perf_counter() - t_start) * 1000.0
     # Profiling log không chứa bất kỳ nội dung OCR nhạy cảm nào (PII-safe):
@@ -211,6 +225,8 @@ def _ocr_region_smart(
         f"early_exit={early_exit_used}, retries={max(0, ocr_calls - 1)}, total_ms={total_time_ms:.1f}"
     )
 
+    if return_candidate:
+        return best_candidate or OcrCandidate("none", [], 0.0, 0.0, [])
     return best_parts
 
 
@@ -218,11 +234,11 @@ def _ocr_region_smart(
 # HÀM TRÍCH XUẤT CHO CCCD & GPLX
 # ===========================================================================
 
-def extract_calibrated_cccd_fields(
+def extract_calibrated_cccd_fields_with_raw(
     image: np.ndarray,
     fast_mode: bool = False,
-) -> dict[str, str | None]:
-    """Trích xuất trường CCCD sử dụng bộ ROI đã hiệu chuẩn và smart OCR."""
+) -> tuple[dict[str, str | None], dict[str, str | None]]:
+    """Trích xuất trường CCCD trả về cả trường đã làm sạch và chuỗi OCR thô nguyên bản."""
     norm_image = _normalize_width(image)
 
     # 1. Số CCCD: 12 chữ số
@@ -230,77 +246,68 @@ def extract_calibrated_cccd_fields(
         c = _clean_id_candidate(val)
         return bool(c and len(c) == 12)
 
-    id_parts = _ocr_region_smart(
+    id_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "id_number",
         RECTIFIED_BOX_CCCD_ID_NUMBER,
         validator=_is_valid_id,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
+    raw_id = " ".join(id_cand.parts) if id_cand.parts else None
     id_number = None
-    for part in id_parts:
+    for part in id_cand.parts:
         c = _clean_id_candidate(part)
         if c:
             id_number = c
             break
-    if not id_number and id_parts:
-        id_number = _clean_id_candidate("".join(id_parts))
+    if not id_number and id_cand.parts:
+        id_number = _clean_id_candidate("".join(id_cand.parts))
 
-    # 2. Họ và tên: làm sạch các nhãn có thể lẫn
-    name_parts = _ocr_region_smart(
+    # 2. Họ và tên: làm sạch các nhãn có thể lẫn và phân tách dòng
+    name_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "full_name",
         RECTIFIED_BOX_CCCD_FULL_NAME,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
-    full_name = None
-    if name_parts:
-        cleaned_parts = []
-        noise_labels = [
-            "Họ và tên", "Họ tên", "Full name", "TEN", "FULL", "NAME", "HO", "VA",
-            "Ngày sinh", "Date of birth", "sinh", "Ngay", "birth", "Dale",
-        ]
-        for p in name_parts:
-            p_clean = p
-            for lbl in noise_labels:
-                p_clean = re.sub(rf"(?i)\b{re.escape(lbl)}\b", "", p_clean)
-            p_clean = p_clean.strip()
-            # Tên người phải không có chữ số và độ dài tối thiểu 2 ký tự
-            if p_clean and len(p_clean) >= 2 and not any(ch.isdigit() for ch in p_clean):
-                cleaned_parts.append(p_clean)
-        if cleaned_parts:
-            full_name = " ".join(cleaned_parts).upper()
+    raw_full_name = " ".join(name_cand.parts) if name_cand.parts else None
+    full_name, _, _ = clean_full_name(raw_full_name, lines=name_cand.lines)
 
     # 3. Ngày sinh
     def _is_valid_date(val: str) -> bool:
         return _parse_date_string(val) is not None
 
-    dob_parts = _ocr_region_smart(
+    dob_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "date_of_birth",
         RECTIFIED_BOX_CCCD_DATE_OF_BIRTH,
         validator=_is_valid_date,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
+    raw_dob = " ".join(dob_cand.parts) if dob_cand.parts else None
     date_of_birth = None
-    for p in dob_parts:
+    for p in dob_cand.parts:
         d = _parse_date_string(p)
         if d:
             date_of_birth = d
             break
-    if not date_of_birth and dob_parts:
-        # Thử ghép toàn bộ chuỗi
-        date_of_birth = _parse_date_string(" ".join(dob_parts))
+    if not date_of_birth and dob_cand.parts:
+        date_of_birth = _parse_date_string(" ".join(dob_cand.parts))
 
     # 4. Giới tính
-    gender_parts = _ocr_region_smart(
+    gender_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "gender",
         RECTIFIED_BOX_CCCD_GENDER,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
+    raw_gender = " ".join(gender_cand.parts) if gender_cand.parts else None
     gender = None
-    for p in gender_parts:
+    for p in gender_cand.parts:
         p_up = p.upper()
         if "NAM" in p_up and "VIET" not in p_up:
             gender = "Nam"
@@ -310,49 +317,59 @@ def extract_calibrated_cccd_fields(
             break
 
     # 5. Quốc tịch
-    nat_parts = _ocr_region_smart(
+    nat_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "nationality",
         RECTIFIED_BOX_CCCD_NATIONALITY,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
-    nationality = "Việt Nam" if any("VIET" in p.upper() or "NAM" in p.upper() for p in nat_parts) else None
+    raw_nationality = " ".join(nat_cand.parts) if nat_cand.parts else None
+    nationality = "Việt Nam" if any("VIET" in p.upper() or "NAM" in p.upper() for p in nat_cand.parts) else None
 
-    # 6. Quê quán
-    orig_parts = _ocr_region_smart(
+    # 6. Quê quán: làm sạch nhãn và hỗ trợ dòng
+    orig_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "place_of_origin",
         RECTIFIED_BOX_CCCD_PLACE_OF_ORIGIN,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
-    place_of_origin = " ".join(orig_parts) if orig_parts else None
+    raw_place_of_origin = " ".join(orig_cand.parts) if orig_cand.parts else None
+    place_of_origin, _, _ = clean_place_of_origin(raw_place_of_origin, lines=orig_cand.lines)
 
-    # 7. Nơi thường trú
-    res1_parts = _ocr_region_smart(
+    # 7. Nơi thường trú: ghép các dòng và làm sạch nhãn
+    res1_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "residence_line_1",
         RECTIFIED_BOX_CCCD_RESIDENCE_LINE_1,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
-    res2_parts = _ocr_region_smart(
+    res2_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "residence_line_2",
         RECTIFIED_BOX_CCCD_RESIDENCE_LINE_2,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
-    res_lines = [" ".join(res1_parts), " ".join(res2_parts)]
-    residence = ", ".join([l for l in res_lines if l.strip()]) or None
+    raw_res_lines = [l for l in [" ".join(res1_cand.parts), " ".join(res2_cand.parts)] if l.strip()]
+    raw_residence = ", ".join(raw_res_lines) if raw_res_lines else None
+    all_res_lines = list(res1_cand.lines) + list(res2_cand.lines)
+    residence, _, _ = clean_residence(raw_residence, lines=all_res_lines)
 
     # 8. Ngày hết hạn
-    exp_parts = _ocr_region_smart(
+    exp_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "expiry_date",
         RECTIFIED_BOX_CCCD_EXPIRY_DATE,
         validator=_is_valid_date,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
+    raw_expiry_date = " ".join(exp_cand.parts) if exp_cand.parts else None
     expiry_date = None
-    for p in exp_parts:
+    for p in exp_cand.parts:
         if "KHONG" in p.upper() or "THOI HAN" in p.upper() or "KHÔNG" in p.upper():
             expiry_date = "Không thời hạn"
             break
@@ -360,10 +377,10 @@ def extract_calibrated_cccd_fields(
         if d:
             expiry_date = d
             break
-    if not expiry_date and exp_parts:
-        expiry_date = _parse_date_string(" ".join(exp_parts))
+    if not expiry_date and exp_cand.parts:
+        expiry_date = _parse_date_string(" ".join(exp_cand.parts))
 
-    return {
+    cleaned = {
         "id_number": id_number,
         "full_name": full_name,
         "date_of_birth": date_of_birth,
@@ -373,13 +390,33 @@ def extract_calibrated_cccd_fields(
         "residence": residence,
         "expiry_date": expiry_date,
     }
+    raw = {
+        "id_number": raw_id,
+        "full_name": raw_full_name,
+        "date_of_birth": raw_dob,
+        "gender": raw_gender,
+        "nationality": raw_nationality,
+        "place_of_origin": raw_place_of_origin,
+        "residence": raw_residence,
+        "expiry_date": raw_expiry_date,
+    }
+    return cleaned, raw
 
 
-def extract_calibrated_gplx_fields(
+def extract_calibrated_cccd_fields(
     image: np.ndarray,
     fast_mode: bool = False,
 ) -> dict[str, str | None]:
-    """Trích xuất trường GPLX sử dụng bộ ROI đã hiệu chuẩn và smart OCR."""
+    """Trích xuất trường CCCD sử dụng bộ ROI đã hiệu chuẩn và smart OCR."""
+    cleaned, _ = extract_calibrated_cccd_fields_with_raw(image, fast_mode=fast_mode)
+    return cleaned
+
+
+def extract_calibrated_gplx_fields_with_raw(
+    image: np.ndarray,
+    fast_mode: bool = False,
+) -> tuple[dict[str, str | None], dict[str, str | None]]:
+    """Trích xuất trường GPLX trả về cả trường đã làm sạch và chuỗi OCR thô nguyên bản."""
     norm_image = _normalize_width(image)
 
     # 1. Số GPLX: dùng kênh Green để tương phản tối đa chữ đỏ
@@ -387,50 +424,47 @@ def extract_calibrated_gplx_fields(
         digits = re.sub(r"\D", "", val.translate(_NUMBER_DIGIT_FIXES))
         return bool(re.search(r"\d{12}", digits) or re.search(r"\d{9,12}", digits))
 
-    lic_parts = _ocr_region_smart(
+    lic_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "license_number",
         RECTIFIED_BOX_GPLX_LICENSE_NUMBER,
         validator=_is_valid_lic,
         custom_preprocessor=_preprocess_green_channel,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
-    text = " ".join(lic_parts)
+    raw_lic = " ".join(lic_cand.parts) if lic_cand.parts else None
+    text = raw_lic or ""
     digits = re.sub(r"\D", "", text.translate(_NUMBER_DIGIT_FIXES))
     match = re.search(r"\d{12}", digits) or re.search(r"\d{9,12}", digits)
     license_number = match.group(0) if match else None
 
     # 2. Họ và tên
-    name_parts = _ocr_region_smart(
+    name_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "full_name",
         RECTIFIED_BOX_GPLX_FULL_NAME,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
-    cleaned_name_parts = []
-    noise_labels = ["Họ tên", "Full name", "HO", "TEN", "FULL", "NAME", "Số", "No"]
-    for p in name_parts:
-        p_clean = p
-        for lbl in noise_labels:
-            p_clean = re.sub(rf"(?i)\b{re.escape(lbl)}\b", "", p_clean)
-        p_clean = p_clean.strip()
-        if p_clean and len(p_clean) >= 2 and not any(ch.isdigit() for ch in p_clean):
-            cleaned_name_parts.append(p_clean)
-    full_name = " ".join(cleaned_name_parts).upper() if cleaned_name_parts else None
+    raw_full_name = " ".join(name_cand.parts) if name_cand.parts else None
+    full_name, _, _ = clean_full_name(raw_full_name, lines=name_cand.lines)
 
     # 3. Ngày sinh
     def _is_valid_dob(val: str) -> bool:
         return DATE_PATTERN.search(val) is not None or _parse_date_string(val) is not None
 
-    dob_parts = _ocr_region_smart(
+    dob_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "date_of_birth",
         RECTIFIED_BOX_GPLX_DATE_OF_BIRTH,
         validator=_is_valid_dob,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
+    raw_dob = " ".join(dob_cand.parts) if dob_cand.parts else None
     date_of_birth = None
-    joined_dob = " ".join(dob_parts)
+    joined_dob = raw_dob or ""
     m = DATE_PATTERN.search(joined_dob)
     if m:
         date_of_birth = f"{m.group(1)}/{m.group(2)}/{m.group(3)}"
@@ -438,28 +472,32 @@ def extract_calibrated_gplx_fields(
         date_of_birth = _parse_date_string(joined_dob)
 
     # 4. Quốc tịch
-    nat_parts = _ocr_region_smart(
+    nat_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "nationality",
         RECTIFIED_BOX_GPLX_NATIONALITY,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
-    nationality = "Việt Nam" if any("VIET" in p.upper() or "NAM" in p.upper() for p in nat_parts) else None
+    raw_nationality = " ".join(nat_cand.parts) if nat_cand.parts else None
+    nationality = "Việt Nam" if any("VIET" in p.upper() or "NAM" in p.upper() for p in nat_cand.parts) else None
 
     # 5. Địa chỉ
-    addr_parts = _ocr_region_smart(
+    addr_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "address",
         RECTIFIED_BOX_GPLX_ADDRESS,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
-    address = " ".join(addr_parts) if addr_parts else None
+    raw_address = " ".join(addr_cand.parts) if addr_cand.parts else None
+    address, _, _ = clean_place_of_origin(raw_address, lines=addr_cand.lines)
 
     # 6. Hạng bằng (tiền xử lý dot-matrix + chuẩn hóa token Al -> A1)
     def _is_valid_class(val: str) -> bool:
         return _normalize_class(val) is not None
 
-    class_parts = _ocr_region_smart(
+    class_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "license_class",
         RECTIFIED_BOX_GPLX_CLASS,
@@ -467,31 +505,35 @@ def extract_calibrated_gplx_fields(
         min_confidence=0.15,  # Hạ ngưỡng để bắt ký tự in mờ
         custom_preprocessor=_preprocess_dot_matrix,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
+    raw_class = " ".join(class_cand.parts) if class_cand.parts else None
     license_class = None
-    for p in class_parts:
+    for p in class_cand.parts:
         c = _normalize_class(p)
         if c:
             license_class = c
             break
-    if not license_class and class_parts:
-        license_class = _normalize_class(" ".join(class_parts))
+    if not license_class and class_cand.parts:
+        license_class = _normalize_class(" ".join(class_cand.parts))
 
     # 7. Ngày hết hạn: Hỗ trợ "Không thời hạn" và ngày cụ thể
     def _is_valid_exp(val: str) -> bool:
         toks = _tokens(val)
         return bool(toks & {"khong", "thoi", "han"}) or DATE_PATTERN.search(val) is not None
 
-    exp_parts = _ocr_region_smart(
+    exp_cand: OcrCandidate = _ocr_region_smart(
         norm_image,
         "expiry",
         RECTIFIED_BOX_GPLX_EXPIRES,
         validator=_is_valid_exp,
         min_confidence=0.15,
         fast_mode=fast_mode,
+        return_candidate=True,
     )
+    raw_expiry = " ".join(exp_cand.parts) if exp_cand.parts else None
     expiry = None
-    joined_exp = " ".join(exp_parts)
+    joined_exp = raw_expiry or ""
     tokens_exp = _tokens(joined_exp)
     if tokens_exp & {"khong", "thoi", "han"}:
         expiry = "Không thời hạn"
@@ -502,7 +544,7 @@ def extract_calibrated_gplx_fields(
         else:
             expiry = _parse_date_string(joined_exp)
 
-    return {
+    cleaned = {
         "license_number": license_number,
         "full_name": full_name,
         "date_of_birth": date_of_birth,
@@ -511,3 +553,22 @@ def extract_calibrated_gplx_fields(
         "license_class": license_class,
         "expiry": expiry,
     }
+    raw = {
+        "license_number": raw_lic,
+        "full_name": raw_full_name,
+        "date_of_birth": raw_dob,
+        "nationality": raw_nationality,
+        "address": raw_address,
+        "license_class": raw_class,
+        "expiry": raw_expiry,
+    }
+    return cleaned, raw
+
+
+def extract_calibrated_gplx_fields(
+    image: np.ndarray,
+    fast_mode: bool = False,
+) -> dict[str, str | None]:
+    """Trích xuất trường GPLX sử dụng bộ ROI đã hiệu chuẩn và smart OCR."""
+    cleaned, _ = extract_calibrated_gplx_fields_with_raw(image, fast_mode=fast_mode)
+    return cleaned

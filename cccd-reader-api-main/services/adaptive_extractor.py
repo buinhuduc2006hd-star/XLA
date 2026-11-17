@@ -26,11 +26,19 @@ from services.calibrated_rois import (
     RECTIFIED_GPLX_ROIS,
     extract_calibrated_cccd_fields,
     extract_calibrated_gplx_fields,
+    extract_calibrated_cccd_fields_with_raw,
+    extract_calibrated_gplx_fields_with_raw,
     _crop_region,
     _normalize_width,
     _preprocess_dot_matrix,
     _preprocess_green_channel,
     _ocr_region_smart,
+)
+from services.field_cleaner import (
+    clean_full_name,
+    clean_place_of_origin,
+    clean_residence,
+    has_label_contamination,
 )
 from services.cccd_extractor import (
     _clean_id_candidate,
@@ -70,7 +78,9 @@ def validate_id_number(val: str | None) -> bool:
     if not val:
         return False
     clean = re.sub(r"\D", "", val)
-    return len(clean) == 12
+    if len(clean) != 12:
+        return False
+    return not has_label_contamination("id_number", val)
 
 
 def validate_license_number(val: str | None) -> bool:
@@ -81,18 +91,67 @@ def validate_license_number(val: str | None) -> bool:
 
 
 def validate_full_name(val: str | None) -> bool:
+    """Kiểm tra tính hợp lệ của trường Họ và tên.
+
+    Yêu cầu:
+    - Không rỗng, độ dài tối thiểu 3 ký tự.
+    - Không chứa chữ số.
+    - Có ít nhất 2 từ.
+    - Tuyệt đối không chứa nhãn song ngữ hoặc biến thể nhãn lỗi (LEN / NAMNE...).
+    """
     if not val:
         return False
     val_clean = val.strip()
     if len(val_clean) < 3 or any(ch.isdigit() for ch in val_clean):
         return False
-    # Phải có ít nhất 2 từ
     words = val_clean.split()
-    return len(words) >= 2
+    if len(words) < 2:
+        return False
+    if has_label_contamination("full_name", val_clean):
+        return False
+    return True
+
+
+def validate_place_of_origin(val: str | None) -> bool:
+    """Kiểm tra tính hợp lệ của Quê quán: độ dài >= 5 và không còn nhãn song ngữ."""
+    if not val:
+        return False
+    val_clean = val.strip()
+    if len(val_clean) < 5:
+        return False
+    if has_label_contamination("place_of_origin", val_clean):
+        return False
+    return True
+
+
+def validate_residence(val: str | None) -> bool:
+    """Kiểm tra tính hợp lệ của Nơi thường trú: độ dài >= 5 và không còn nhãn song ngữ."""
+    if not val:
+        return False
+    val_clean = val.strip()
+    if len(val_clean) < 5:
+        return False
+    if has_label_contamination("residence", val_clean):
+        return False
+    return True
+
+
+def validate_address(val: str | None) -> bool:
+    """Kiểm tra tính hợp lệ của Địa chỉ GPLX: độ dài >= 5 và không còn nhãn song ngữ."""
+    if not val:
+        return False
+    val_clean = val.strip()
+    if len(val_clean) < 5:
+        return False
+    if has_label_contamination("address", val_clean):
+        return False
+    return True
 
 
 def validate_date(val: str | None) -> bool:
     if not val:
+        return False
+    if has_label_contamination("date_of_birth", val):
         return False
     return _parse_date_string(val) is not None
 
@@ -139,8 +198,8 @@ CCCD_VALIDATORS: dict[str, Callable[[str | None], bool]] = {
     "date_of_birth": validate_date,
     "gender": validate_gender,
     "nationality": validate_nationality,
-    "place_of_origin": lambda v: bool(v and len(v.strip()) >= 5),
-    "residence": lambda v: bool(v and len(v.strip()) >= 5),
+    "place_of_origin": validate_place_of_origin,
+    "residence": validate_residence,
     "expiry_date": validate_expiry,
 }
 
@@ -149,7 +208,7 @@ GPLX_VALIDATORS: dict[str, Callable[[str | None], bool]] = {
     "full_name": validate_full_name,
     "date_of_birth": validate_date,
     "nationality": validate_nationality,
-    "address": lambda v: bool(v and len(v.strip()) >= 5),
+    "address": validate_address,
     "license_class": validate_license_class,
     "expiry": validate_expiry,
 }
@@ -240,6 +299,8 @@ class ExtractionResult:
     valid_flags: dict[str, bool]
     fallback_used: dict[str, bool]
     fallback_sources: dict[str, str | None]
+    raw_fields: dict[str, str | None] = field(default_factory=dict)
+    clean_flags: dict[str, bool] = field(default_factory=dict)
     total_fallbacks: int = 0
     successful_fallbacks: int = 0
 
@@ -303,16 +364,18 @@ def extract_adaptive_pipeline_e(
     t_start = time.perf_counter()
     is_fast = (str(mode).lower() == "fast")
 
-    # Bước 1: Trích xuất chính trên ảnh Rectified bằng Calibrated ROIs
+    # Bước 1: Trích xuất chính trên ảnh Rectified bằng Calibrated ROIs (lấy cả trường sạch và chuỗi thô)
     if card_type == "cccd":
-        initial_fields = extract_calibrated_cccd_fields(rectified_image, fast_mode=is_fast)
+        initial_fields, initial_raw_fields = extract_calibrated_cccd_fields_with_raw(rectified_image, fast_mode=is_fast)
         validators = CCCD_VALIDATORS
     else:
-        initial_fields = extract_calibrated_gplx_fields(rectified_image, fast_mode=is_fast)
+        initial_fields, initial_raw_fields = extract_calibrated_gplx_fields_with_raw(rectified_image, fast_mode=is_fast)
         validators = GPLX_VALIDATORS
 
     final_fields = dict(initial_fields)
+    final_raw_fields = dict(initial_raw_fields)
     valid_flags: dict[str, bool] = {}
+    clean_flags: dict[str, bool] = {}
     fallback_used: dict[str, bool] = {}
     fallback_sources: dict[str, str | None] = {}
 
@@ -353,25 +416,55 @@ def extract_adaptive_pipeline_e(
                 logger.debug(f"Triggering field fallback for '{fld}' (initial_valid=False, has_value={bool(val)})")
 
                 # Fallback: Trích xuất từ YOLO Crop qua baseline extractor
+                # Guard: yolo_crop có thể là None trong pipeline Pose (không có YOLO Detection)
+                if yolo_crop is None:
+                    logger.debug(
+                        f"Fallback for field '{fld}' skipped: yolo_crop is None (Pose pipeline)."
+                    )
+                    valid_flags[fld] = False
+                    fallback_used[fld] = False
+                    fallback_sources[fld] = "rectified" if val else "unextracted"
+                    total_fallbacks -= 1  # Không tính là một lần fallback thực sự
+                    continue
                 recovered_val = _extract_single_baseline_field(yolo_crop, card_type, fld)
 
-                if validator(recovered_val):
-                    final_fields[fld] = recovered_val
+                # Làm sạch giá trị fallback nếu cần
+                cleaned_recovered = recovered_val
+                if fld == "full_name":
+                    cleaned_recovered, _, _ = clean_full_name(recovered_val)
+                elif fld == "place_of_origin":
+                    cleaned_recovered, _, _ = clean_place_of_origin(recovered_val)
+                elif fld in ("residence", "address"):
+                    cleaned_recovered, _, _ = clean_residence(recovered_val)
+
+                if validator(cleaned_recovered):
+                    final_fields[fld] = cleaned_recovered
+                    if not final_raw_fields.get(fld):
+                        final_raw_fields[fld] = recovered_val
                     valid_flags[fld] = True
                     fallback_sources[fld] = "yolo_crop_baseline"
                     successful_fallbacks += 1
                     logger.debug(f"Field fallback SUCCEEDED for '{fld}'")
                 else:
                     # Nếu vẫn không đạt validator, giữ giá trị tốt hơn giữa val và recovered_val
-                    final_fields[fld] = val or recovered_val
+                    final_fields[fld] = cleaned_recovered or val
                     valid_flags[fld] = False
                     fallback_sources[fld] = "failed"
+
+    # Bước 3: Xác định tính sạch (clean) và đảm bảo không cho valid=True nếu bị nhiễm nhãn
+    for fld, val in final_fields.items():
+        is_clean = not has_label_contamination(fld, val)
+        clean_flags[fld] = is_clean
+        if not is_clean:
+            valid_flags[fld] = False
 
     return ExtractionResult(
         fields=final_fields,
         valid_flags=valid_flags,
         fallback_used=fallback_used,
         fallback_sources=fallback_sources,
+        raw_fields=final_raw_fields,
+        clean_flags=clean_flags,
         total_fallbacks=total_fallbacks,
         successful_fallbacks=successful_fallbacks,
     )

@@ -1,0 +1,245 @@
+{
+  "hardware": {
+    "os": "Windows 11",
+    "cpu_cores": 16,
+    "total_ram_gb": 7.68
+  },
+  "cold_vs_warm": {
+    "cold_start_ms": 26937.9,
+    "warm_start_ms": 25194.2
+  },
+  "modes": {
+    "cccd_fast": {
+      "sample_count": 4,
+      "total_latency_ms": {
+        "mean": 23630.2,
+        "median": 24042.4,
+        "p95": 25257.2,
+        "max": 25446.7,
+        "min": 20989.3
+      },
+      "detection_latency_ms": {
+        "mean": 65.4,
+        "median": 65.6,
+        "p95": 78.6,
+        "max": 79.4,
+        "min": 51.2
+      },
+      "rectification_latency_ms": {
+        "mean": 15.1,
+        "median": 14.6,
+        "p95": 19.2,
+        "max": 19.6,
+        "min": 11.8
+      },
+      "ocr_latency_ms": {
+        "mean": 20230.5,
+        "median": 20679.7,
+        "p95": 21085.6,
+        "max": 21154.7,
+        "min": 18408.0
+      },
+      "peak_rss_mb": 3.0,
+      "avg_cpu_percent": 55.0
+    },
+    "cccd_accurate": {
+      "sample_count": 2,
+      "total_latency_ms": {
+        "mean": 61300.1,
+        "median": 61300.1,
+        "p95": 65099.1,
+        "max": 65521.2,
+        "min": 57079.0
+      },
+      "detection_latency_ms": {
+        "mean": 62.0,
+        "median": 62.0,
+        "p95": 71.8,
+        "max": 72.9,
+        "min": 51.1
+      },
+      "rectification_latency_ms": {
+        "mean": 18.4,
+        "median": 18.4,
+        "p95": 19.3,
+        "max": 19.4,
+        "min": 17.3
+      },
+      "ocr_latency_ms": {
+        "mean": 56185.3,
+        "median": 56185.3,
+        "p95": 60641.6,
+        "max": 61136.8,
+        "min": 51233.8
+      },
+      "peak_rss_mb": 0.7,
+      "avg_cpu_percent": 56.1
+    },
+    "gplx_fast": {
+      "sample_count": 3,
+      "total_latency_ms": {
+        "mean": 16313.0,
+        "median": 15721.9,
+        "p95": 17373.0,
+        "max": 17556.4,
+        "min": 15660.6
+      },
+      "detection_latency_ms": {
+        "mean": 84.6,
+        "median": 83.8,
+        "p95": 95.3,
+        "max": 96.5,
+        "min": 73.5
+      },
+      "rectification_latency_ms": {
+        "mean": 14.5,
+        "median": 13.9,
+        "p95": 16.2,
+        "max": 16.5,
+        "min": 13.1
+      },
+      "ocr_latency_ms": {
+        "mean": 14024.5,
+        "median": 13732.8,
+        "p95": 15004.2,
+        "max": 15145.5,
+        "min": 13195.4
+      },
+      "peak_rss_mb": 1.1,
+      "avg_cpu_percent": 54.5
+    },
+    "gplx_accurate": {
+      "sample_count": 2,
+      "total_latency_ms": {
+        "mean": 38927.1,
+        "median": 38927.1,
+        "p95": 41433.8,
+        "max": 41712.3,
+        "min": 36141.9
+      },
+      "detection_latency_ms": {
+        "mean": 83.8,
+        "median": 83.8,
+        "p95": 88.6,
+        "max": 89.1,
+        "min": 78.5
+      },
+      "rectification_latency_ms": {
+        "mean": 14.5,
+        "median": 14.5,
+        "p95": 16.6,
+        "max": 16.9,
+        "min": 12.2
+      },
+      "ocr_latency_ms": {
+        "mean": 34337.7,
+        "median": 34337.7,
+        "p95": 36746.4,
+        "max": 37014.0,
+        "min": 31661.3
+      },
+      "peak_rss_mb": 0.8,
+      "avg_cpu_percent": 54.6
+    }
+  },
+  "error_tests": {
+    "unsupported_media_type": {
+      "status_code": 400,
+      "error_code": "UNSUPPORTED_MEDIA_TYPE",
+      "passed": true
+    },
+    "file_too_large": {
+      "status_code": 413,
+      "error_code": "FILE_TOO_LARGE",
+      "passed": true
+    },
+    "document_type_mismatch": {
+      "status_code": 422,
+      "error_code": "DOCUMENT_TYPE_MISMATCH",
+      "passed": true
+    }
+  },
+  "concurrency": {
+    "req_1_latency_ms": 25398.3,
+    "req_2_latency_ms": 50362.4,
+    "peak_active_workers": 1,
+    "available_slots": 0
+  },
+  "ocr_quality": {
+    "cccd:id_number": {
+      "total": 6,
+      "extracted": 6,
+      "valid": 6
+    },
+    "cccd:full_name": {
+      "total": 6,
+      "extracted": 5,
+      "valid": 4
+    },
+    "cccd:date_of_birth": {
+      "total": 6,
+      "extracted": 4,
+      "valid": 4
+    },
+    "cccd:gender": {
+      "total": 6,
+      "extracted": 4,
+      "valid": 4
+    },
+    "cccd:nationality": {
+      "total": 6,
+      "extracted": 4,
+      "valid": 4
+    },
+    "cccd:place_of_origin": {
+      "total": 6,
+      "extracted": 6,
+      "valid": 6
+    },
+    "cccd:residence": {
+      "total": 6,
+      "extracted": 6,
+      "valid": 6
+    },
+    "cccd:expiry_date": {
+      "total": 6,
+      "extracted": 2,
+      "valid": 2
+    },
+    "gplx:license_number": {
+      "total": 5,
+      "extracted": 5,
+      "valid": 5
+    },
+    "gplx:full_name": {
+      "total": 5,
+      "extracted": 4,
+      "valid": 3
+    },
+    "gplx:date_of_birth": {
+      "total": 5,
+      "extracted": 5,
+      "valid": 5
+    },
+    "gplx:nationality": {
+      "total": 5,
+      "extracted": 3,
+      "valid": 3
+    },
+    "gplx:address": {
+      "total": 5,
+      "extracted": 5,
+      "valid": 5
+    },
+    "gplx:license_class": {
+      "total": 5,
+      "extracted": 2,
+      "valid": 2
+    },
+    "gplx:expiry": {
+      "total": 5,
+      "extracted": 3,
+      "valid": 3
+    }
+  }
+}

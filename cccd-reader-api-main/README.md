@@ -66,6 +66,7 @@ cccd-reader-api-main/
 │   ├── adaptive_extractor.py       # Pipeline E, 15 Field Validators, CER/WER, Field Fallback
 │   ├── calibrated_rois.py          # Tọa độ ROI hiệu chuẩn trên ảnh 856x540, dot-matrix, green channel
 │   ├── cccd_extractor.py           # Baseline extractor CCCD (Giai đoạn 1)
+│   ├── concurrency.py              # InferencePool quản lý luồng CPU, chống Premature Release (Giai đoạn 6)
 │   ├── document_detector.py        # Wrapper phát hiện giấy tờ YOLOv8n
 │   ├── document_orientation.py     # Hiệu chỉnh chiều đọc văn bản (0°, 90°, 180°, 270°)
 │   ├── document_rectifier.py       # Nắn chỉnh phối cảnh 4 góc OpenCV
@@ -74,7 +75,8 @@ cccd-reader-api-main/
 │   ├── ocr_service.py              # EasyOCR wrapper và singleton reader
 │   └── pipeline_v2.py              # Orchestration service điều phối toàn bộ luồng V2
 ├── tests/
-│   ├── test_api_v2.py              # Unit tests API v2 với mock (17 test cases, chạy < 1s)
+│   ├── test_concurrency.py         # Kiểm thử 8 kịch bản Concurrency & Worker lifecycle (Giai đoạn 6)
+│   ├── test_api_v2.py              # Unit tests API v2 với mock (25 test cases, chạy < 1s)
 │   ├── test_integration_v2.py      # Integration tests API v2 trên model thật (CCCD & GPLX)
 │   ├── test_cccd_extractor.py      # Unit tests baseline CCCD (33 test cases)
 │   ├── test_document_detector.py   # Unit tests YOLO detector (14 test cases)

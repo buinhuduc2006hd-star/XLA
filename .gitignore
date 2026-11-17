@@ -33,3 +33,11 @@ cccd-reader-api-main/datasets/images/*/*
 cccd-reader-api-main/datasets/labels/*/*
 cccd-reader-api-main/datasets/labels/*.cache
 !cccd-reader-api-main/datasets/labels/*/.gitkeep
+cccd-reader-api-main/datasets/document_pose/images/*/*
+!cccd-reader-api-main/datasets/document_pose/images/*/.gitkeep
+cccd-reader-api-main/datasets/document_pose/labels/*/*
+cccd-reader-api-main/datasets/document_pose/labels/*.cache
+!cccd-reader-api-main/datasets/document_pose/labels/*/.gitkeep
+*.log
+CCCD_Reader.spec
+

@@ -1,0 +1,191 @@
+{
+  "benchmark_metadata": {
+    "stage": "3.3",
+    "name": "YOLOv8n Detection + OpenCV Document Corner Detection",
+    "total_samples": 50,
+    "cccd_samples": 25,
+    "gplx_samples": 25,
+    "timestamp": "2026-11-16T18:09:26Z"
+  },
+  "corner_detection_results": {
+    "total_images": 50,
+    "yolo_detected": 50,
+    "corners_success": 49,
+    "corners_failed": 1,
+    "success_rate_percent": 98.0,
+    "failure_rate_percent": 2.0,
+    "methods_breakdown": {
+      "contour_approx": 27,
+      "convex_hull": 22,
+      "line_intersection": 0,
+      "fallback_none": 0,
+      "fallback_crop": 1
+    },
+    "localization_error": {
+      "mean_aspect_ratio": 1.489,
+      "ideal_id1_aspect_ratio": 1.5858,
+      "mean_aspect_ratio_error": 0.1909,
+      "mean_orthogonality_deviation_degrees": 6.37
+    },
+    "average_latency_ms": 52.65
+  },
+  "ocr_comparison": {
+    "before_rectification_yolo_crop": {
+      "field_extraction_rate_percent": 44.8,
+      "field_validation_rate_percent": 24.27,
+      "average_latency_sec": 39.82,
+      "field_level": {
+        "id_number": {
+          "total": 25,
+          "extracted": 9,
+          "valid": 9
+        },
+        "full_name": {
+          "total": 50,
+          "extracted": 41,
+          "valid": 17
+        },
+        "date_of_birth": {
+          "total": 50,
+          "extracted": 42,
+          "valid": 3
+        },
+        "gender": {
+          "total": 25,
+          "extracted": 2,
+          "valid": 2
+        },
+        "nationality": {
+          "total": 50,
+          "extracted": 7,
+          "valid": 7
+        },
+        "place_of_origin": {
+          "total": 25,
+          "extracted": 21,
+          "valid": 16
+        },
+        "residence": {
+          "total": 25,
+          "extracted": 9,
+          "valid": 6
+        },
+        "expiry_date": {
+          "total": 25,
+          "extracted": 0,
+          "valid": 0
+        },
+        "license_number": {
+          "total": 25,
+          "extracted": 4,
+          "valid": 4
+        },
+        "address": {
+          "total": 25,
+          "extracted": 23,
+          "valid": 17
+        },
+        "license_class": {
+          "total": 25,
+          "extracted": 10,
+          "valid": 10
+        },
+        "expiry": {
+          "total": 25,
+          "extracted": 0,
+          "valid": 0
+        }
+      }
+    },
+    "after_rectification_opencv_warp": {
+      "field_extraction_rate_percent": 48.53,
+      "field_validation_rate_percent": 43.2,
+      "average_latency_sec": 28.03,
+      "field_level": {
+        "id_number": {
+          "total": 25,
+          "extracted": 11,
+          "valid": 11
+        },
+        "full_name": {
+          "total": 50,
+          "extracted": 39,
+          "valid": 28
+        },
+        "date_of_birth": {
+          "total": 50,
+          "extracted": 19,
+          "valid": 19
+        },
+        "gender": {
+          "total": 25,
+          "extracted": 9,
+          "valid": 9
+        },
+        "nationality": {
+          "total": 50,
+          "extracted": 13,
+          "valid": 13
+        },
+        "place_of_origin": {
+          "total": 25,
+          "extracted": 18,
+          "valid": 14
+        },
+        "residence": {
+          "total": 25,
+          "extracted": 20,
+          "valid": 17
+        },
+        "expiry_date": {
+          "total": 25,
+          "extracted": 5,
+          "valid": 5
+        },
+        "license_number": {
+          "total": 25,
+          "extracted": 10,
+          "valid": 10
+        },
+        "address": {
+          "total": 25,
+          "extracted": 25,
+          "valid": 23
+        },
+        "license_class": {
+          "total": 25,
+          "extracted": 2,
+          "valid": 2
+        },
+        "expiry": {
+          "total": 25,
+          "extracted": 11,
+          "valid": 11
+        }
+      }
+    },
+    "net_gain": {
+      "extraction_rate_gain_percent": 3.73,
+      "validation_rate_gain_percent": 18.93
+    }
+  },
+  "failure_analysis": {
+    "total_failures": 1,
+    "cases": [
+      {
+        "index": 46,
+        "filename": "gplx_1794203008286_499751437511627297_2033087232165695992_fef1053a4694ecf75fafc419f0c6ef1c_jpg.rf.bdb7fb5e086856f1625170e4f0c22411.jpg",
+        "doc_type": "gplx",
+        "yolo_bbox": [
+          152,
+          275,
+          640,
+          687
+        ],
+        "method_attempted": "fallback_crop",
+        "error": "No valid 4-corner quadrilateral detected",
+        "cause": "Rounded Corner / Strong Skew (Bo tròn góc 3.18mm làm gãy polygon 4 đỉnh)"
+      }
+    ]
+  }
+}

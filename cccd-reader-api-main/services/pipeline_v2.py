@@ -254,18 +254,28 @@ def process_document_v2(
     total_ms = (time.perf_counter() - t_start) * 1000.0
 
     # -----------------------------------------------------------------------
-    # Bước 5: Đóng gói Response Schema
+    # Bước 5: Đóng gói Response Schema với raw_ocr, fields và validation độc lập
     # -----------------------------------------------------------------------
     fields_dict: dict[str, FieldValue] = {}
+    raw_ocr_dict: dict[str, Optional[str]] = dict(ocr_result.raw_fields)
+    validation_dict: dict[str, bool] = dict(ocr_result.valid_flags)
+
     for fld, val in ocr_result.fields.items():
         is_valid = ocr_result.valid_flags.get(fld, False)
+        is_clean = ocr_result.clean_flags.get(fld, True)
+        raw_val = ocr_result.raw_fields.get(fld)
         src = ocr_result.fallback_sources.get(fld, "rectified" if val else "unextracted")
         fields_dict[fld] = FieldValue(
             value=val,
+            raw_value=raw_val,
             valid=is_valid,
+            clean=is_clean,
             confidence=None,  # EasyOCR heuristic OCR doesn't provide calibrated word-level conf for parsed fields
             source=src or "rectified",
         )
+        validation_dict[fld] = is_valid
+        if fld not in raw_ocr_dict:
+            raw_ocr_dict[fld] = raw_val
 
     response = DocumentV2Response(
         success=True,
@@ -285,6 +295,8 @@ def process_document_v2(
             fallback_used=rect_result.fallback_used or orient_result.fallback_used or (ocr_result.total_fallbacks > 0),
         ),
         fields=fields_dict,
+        raw_ocr=raw_ocr_dict,
+        validation=validation_dict,
         timing_ms=TimingInfo(
             detection_ms=round(detection_ms, 2),
             rectification_ms=round(rectification_ms, 2),

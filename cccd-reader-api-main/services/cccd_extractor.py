@@ -23,7 +23,7 @@ import re
 import tempfile
 import unicodedata
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -140,12 +140,24 @@ _ID_DIGIT_FIXES = str.maketrans({
 })
 
 
-@dataclass(frozen=True)
+@dataclass
+class OcrLine:
+    text: str
+    confidence: float
+    box: list[list[int]] = field(default_factory=list)
+    x_min: float = 0.0
+    x_max: float = 0.0
+    y_min: float = 0.0
+    y_max: float = 0.0
+
+
+@dataclass
 class OcrCandidate:
     variant: str
     parts: list[str]
     mean_confidence: float
     weight: float  # tổng (confidence * số ký tự): ưu tiên biến thể đọc được nhiều chữ tin cậy
+    lines: list[OcrLine] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -242,19 +254,44 @@ def _run_ocr(
         len(results),
     )
 
-    kept = [
-        (item["text"].strip(), float(item["confidence"]))
-        for item in results
-        if item["confidence"] >= min_confidence and re.search(r"\w", item["text"])
+    kept_items = [
+        item for item in results
+        if float(item["confidence"]) >= min_confidence and re.search(r"\w", item["text"])
     ]
-    if not kept:
-        return OcrCandidate(variant, [], 0.0, 0.0)
+    if not kept_items:
+        return OcrCandidate(variant, [], 0.0, 0.0, [])
+
+    ocr_lines: list[OcrLine] = []
+    h_up, w_up = upscaled.shape[:2]
+    for item in kept_items:
+        txt = item["text"].strip()
+        conf = float(item["confidence"])
+        box = item.get("box", [])
+        if box and len(box) == 4:
+            xs = [pt[0] for pt in box]
+            ys = [pt[1] for pt in box]
+            x_min = min(xs) / max(w_up, 1)
+            x_max = max(xs) / max(w_up, 1)
+            y_min = min(ys) / max(h_up, 1)
+            y_max = max(ys) / max(h_up, 1)
+        else:
+            x_min = x_max = y_min = y_max = 0.0
+        ocr_lines.append(OcrLine(
+            text=txt,
+            confidence=conf,
+            box=box,
+            x_min=x_min,
+            x_max=x_max,
+            y_min=y_min,
+            y_max=y_max,
+        ))
 
     return OcrCandidate(
         variant=variant,
-        parts=[text for text, _ in kept],
-        mean_confidence=sum(conf for _, conf in kept) / len(kept),
-        weight=sum(conf * len(text) for text, conf in kept),
+        parts=[line.text for line in ocr_lines],
+        mean_confidence=sum(line.confidence for line in ocr_lines) / len(ocr_lines),
+        weight=sum(line.confidence * len(line.text) for line in ocr_lines),
+        lines=ocr_lines,
     )
 
 

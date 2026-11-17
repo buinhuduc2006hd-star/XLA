@@ -61,7 +61,9 @@ class TestAPIV2Integration(unittest.TestCase):
         self.assertIn("id_number", parsed.fields)
         self.assertIn("date_of_birth", parsed.fields)
         self.assertGreater(parsed.timing_ms.total_ms, 0)
-        print(f"\n[Live CCCD Fast] Total latency: {parsed.timing_ms.total_ms:.1f}ms | ID: {parsed.fields['id_number'].value}")
+        raw_id = parsed.fields['id_number'].value or ""
+        masked_id = f"{raw_id[:3]}******{raw_id[-3:]}" if len(raw_id) >= 6 else "[MASKED]"
+        print(f"\n[Live CCCD Fast] Total latency: {parsed.timing_ms.total_ms:.1f}ms | ID: {masked_id}")
 
     def test_live_v2_upload_gplx_fast_mode(self):
         """Kiểm thử gọi trực tiếp POST /api/v2/upload với mode=fast trên ảnh GPLX thật."""

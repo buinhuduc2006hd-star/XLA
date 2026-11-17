@@ -24,16 +24,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from schemas import DocumentV2Response, ErrorResponse
+from services.concurrency import get_inference_pool
 from services.document_orientation import get_shared_easyocr_reader
+from services.document_pose_detector import (
+    KeypointValidationError,
+    PoseDetectorError,
+    PoseModelIncompatibleError,
+    PoseModelNotFoundError,
+    get_document_pose_detector,
+)
 from services.id_card_extractor import extract_id_card_fields
-from services.pipeline_v2 import (
+from services.pipeline_pose import (
     DocumentTypeMismatchError,
     InvalidImageError,
-    ModelConfigurationError,
     NoDocumentDetectedError,
+    PipelinePoseError,
     PipelineV2Error,
-    get_document_detector,
-    process_document_v2,
+    process_document_pose,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,24 +79,40 @@ def _detect_and_validate_magic_bytes(content: bytes) -> str | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Quản lý vòng đời ứng dụng: nạp trước mô hình một lần khi khởi động."""
+    """Quản lý vòng đời ứng dụng: dọn dẹp file tạm và nạp trước mô hình một lần khi khởi động."""
     import os
-    if not os.environ.get("DISABLE_MODEL_PRELOAD"):
-        logger.info("CCCD Reader API đang khởi động. Khởi tạo tài nguyên mô hình...")
-        try:
-            # Pre-load YOLOv8n detector
-            get_document_detector()
-        except Exception as e:
-            logger.warning(f"Chưa thể nạp trước YOLO detector khi khởi động: {e}")
+    # Dọn dẹp an toàn các file tạm còn sót lại trong uploads/
+    if UPLOAD_DIR.exists():
+        for stray_file in UPLOAD_DIR.glob("*"):
+            if stray_file.is_file() and stray_file.name != ".gitkeep":
+                try:
+                    stray_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
+    if not os.environ.get("DISABLE_MODEL_PRELOAD"):
+        logger.info("CCCD Reader API đang khởi động (Pose-Only). Khởi tạo tài nguyên mô hình...")
         try:
-            # Pre-load EasyOCR reader
+            get_document_pose_detector()
+            logger.info("Nạp trước YOLOv8-Pose detector thành công.")
+        except PoseModelNotFoundError:
+            logger.warning(
+                "Chưa có checkpoint YOLOv8-Pose (models/document_pose/best.pt). "
+                "Backend khởi động bình thường – endpoint xử lý ảnh sẽ báo lỗi 503 khi được gọi."
+            )
+        except Exception as e:
+            logger.warning(f"Chưa thể nạp trước YOLOv8-Pose detector: {e}")
+        try:
             get_shared_easyocr_reader()
         except Exception as e:
-            logger.warning(f"Chưa thể nạp trước EasyOCR reader khi khởi động: {e}")
+            logger.warning(f"Chưa thể nạp trước EasyOCR reader: {e}")
 
     yield
-    logger.info("CCCD Reader API đang tắt. Giải phóng tài nguyên...")
+    logger.info("CCCD Reader API đang tắt. Giải phóng tài nguyên và chờ worker hoàn tất...")
+    try:
+        get_inference_pool().shutdown(wait=True)
+    except Exception as e:
+        logger.warning(f"Lỗi khi đóng InferencePool: {e}")
 
 
 app = FastAPI(
@@ -126,6 +149,7 @@ def health_check():
     return {
         "status": "ok",
         "version": "0.2.0",
+        "concurrency": get_inference_pool().get_stats(),
     }
 
 
@@ -192,7 +216,7 @@ async def upload_image_v2(
     mode: str = Form("fast", description="Chế độ: 'fast' (nhanh, 1 pass) hoặc 'accurate' (tối ưu độ chính xác và fallback)"),
     document_type: str = Form("auto", description="Loại giấy tờ: 'auto' (tự phát hiện), 'cccd', hoặc 'gplx'"),
 ):
-    """Endpoint V2: Pipeline tự động End-to-End từ phát hiện, nắn phối cảnh đến trích xuất OCR."""
+    """Endpoint V2 (Pose-Only): Pipeline tự động End-to-End từ phát hiện 4 góc bằng YOLOv8-Pose đến trích xuất OCR."""
     # 1. Kiểm tra phần mở rộng file
     filename = file.filename or ""
     extension = Path(filename).suffix.lower()
@@ -331,16 +355,61 @@ async def upload_image_v2(
             ).model_dump(),
         )
 
-    # 7. Xử lý qua Pipeline V2 với Semaphore concurrency control và non-blocking thread
+    # 7. Kiểm tra sự tồn tại của mô hình YOLOv8-Pose
+    import os
+    pose_env = os.getenv("POSE_MODEL_PATH")
+    expected_pose_path = Path(pose_env) if pose_env else (PROJECT_ROOT / "models" / "document_pose" / "best.pt")
+    if not expected_pose_path.exists():
+        logger.error(f"Chế độ pose-only yêu cầu checkpoint tại '{expected_pose_path}', nhưng file không tồn tại.")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=ErrorResponse(
+                error_code="POSE_MODEL_NOT_FOUND",
+                message="YOLOv8-Pose model checkpoint not found. Train or provide 'models/document_pose/best.pt' to enable pose-only pipeline.",
+                details={"pipeline_mode": "pose", "expected_path": str(expected_pose_path)},
+            ).model_dump(),
+        )
+
+    # 8. Xử lý qua Pose-only Pipeline với InferencePool concurrency control
     try:
-        async with _INFERENCE_SEMAPHORE:
-            response_data = await asyncio.to_thread(
-                process_document_v2,
-                image=image,
-                mode=mode_clean,
-                document_type=doc_type_clean,
-            )
+        pool = get_inference_pool()
+        response_data = await pool.run_in_pool(
+            process_document_pose,
+            image=image,
+            mode=mode_clean,
+            document_type=doc_type_clean,
+        )
         return response_data
+
+    except KeypointValidationError as e:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=ErrorResponse(
+                error_code="KEYPOINT_VALIDATION_FAILED",
+                message=e.message,
+                details=e.details,
+            ).model_dump(),
+        )
+
+    except PoseModelNotFoundError as e:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=ErrorResponse(
+                error_code="POSE_MODEL_NOT_FOUND",
+                message=e.message,
+                details=e.details,
+            ).model_dump(),
+        )
+
+    except PoseModelIncompatibleError as e:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=ErrorResponse(
+                error_code="POSE_MODEL_INCOMPATIBLE",
+                message=e.message,
+                details=e.details,
+            ).model_dump(),
+        )
 
     except NoDocumentDetectedError as e:
         return JSONResponse(
@@ -362,7 +431,7 @@ async def upload_image_v2(
             ).model_dump(),
         )
 
-    except (InvalidImageError, PipelineV2Error) as e:
+    except (InvalidImageError, PipelineV2Error, PipelinePoseError) as e:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=ErrorResponse(
@@ -372,20 +441,9 @@ async def upload_image_v2(
             ).model_dump(),
         )
 
-    except ModelConfigurationError as e:
-        logger.error(f"Lỗi cấu hình mô hình YOLO: {type(e).__name__}")
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=ErrorResponse(
-                error_code="MODEL_CONFIGURATION_ERROR",
-                message="YOLO document detection model is not properly configured or missing",
-                details={"error": e.message if hasattr(e, "message") else str(e)},
-            ).model_dump(),
-        )
-
     except Exception as e:
         # Không rò rỉ stack trace hay thông tin nhạy cảm ra ngoài client
-        logger.error(f"Lỗi không xác định trong quá trình xử lý Pipeline V2: {type(e).__name__}")
+        logger.error(f"Lỗi không xác định trong quá trình xử lý Pose Pipeline: {type(e).__name__}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=ErrorResponse(

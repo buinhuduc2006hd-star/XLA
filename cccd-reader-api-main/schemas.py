@@ -31,8 +31,10 @@ class ProcessingInfo(BaseModel):
 class FieldValue(BaseModel):
     """Giá trị và trạng thái xác thực của một trường thông tin trích xuất."""
 
-    value: Optional[str] = Field(None, description="Chuỗi văn bản trích xuất được (hoặc null nếu không tìm thấy)")
-    valid: bool = Field(False, description="Kết quả có thỏa mãn validator nghiệp vụ định dạng hay không")
+    value: Optional[str] = Field(None, description="Chuỗi văn bản trích xuất đã làm sạch (hoặc null nếu không tìm thấy)")
+    raw_value: Optional[str] = Field(None, description="Chuỗi văn bản thô nguyên bản do EasyOCR đọc được")
+    valid: bool = Field(False, description="Kết quả có thỏa mãn validator nghiệp vụ định dạng và sạch sẽ hay không")
+    clean: bool = Field(True, description="Trường dữ liệu đã được làm sạch, không còn nhãn song ngữ hoặc rác OCR")
     confidence: Optional[float] = Field(None, description="Độ tin cậy OCR của trường (nếu có)")
     source: str = Field("rectified", description="Nguồn trích xuất ('rectified', 'yolo_crop_fallback', 'unextracted')")
 
@@ -53,9 +55,15 @@ class DocumentV2Response(BaseModel):
     success: bool = Field(True, description="Trạng thái xử lý thành công")
     document_type: str = Field(..., description="Loại giấy tờ ('cccd' hoặc 'gplx')")
     mode: str = Field(..., description="Chế độ xử lý ('fast' hoặc 'accurate')")
+    pipeline_mode: str = Field("pose", description="Chế độ pipeline thực thi ('pose')")
     detection: DetectionInfo = Field(..., description="Chi tiết phát hiện vị trí giấy tờ")
     processing: ProcessingInfo = Field(..., description="Chi tiết nắn phối cảnh và định hướng")
+    keypoints: Optional[list[list[int]]] = Field(None, description="Tọa độ 4 góc [TL, TR, BR, BL] dự đoán bởi Pose Detector (nếu có)")
+    keypoint_confidences: Optional[list[float]] = Field(None, description="Độ tin cậy của 4 keypoint (nếu có)")
+    corner_validation_status: Optional[str] = Field(None, description="Trạng thái kiểm định hình học 4 góc ('valid', 'failed', 'not_applicable')")
     fields: dict[str, FieldValue] = Field(..., description="Các trường thông tin đã trích xuất")
+    raw_ocr: dict[str, Optional[str]] = Field(default_factory=dict, description="Dữ liệu OCR thô nguyên bản chưa làm sạch theo từng trường")
+    validation: dict[str, bool] = Field(default_factory=dict, description="Trạng thái kiểm tra kết quả sau xử lý cho từng trường")
     timing_ms: TimingInfo = Field(..., description="Thời gian xử lý từng công đoạn")
 
 

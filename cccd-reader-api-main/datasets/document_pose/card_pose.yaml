@@ -1,0 +1,37 @@
+# ==============================================================================
+# YOLOv8-Pose Dataset Configuration for Vietnamese ID Cards (CCCD & GPLX)
+# ==============================================================================
+# Target: 4 Physical Corners Detection for Perspective Rectification
+# Keypoint indices:
+#   0: top_left
+#   1: top_right
+#   2: bottom_right
+#   3: bottom_left
+# Format: <class-id> <x_center> <y_center> <width> <height> <x_tl> <y_tl> <v_tl> <x_tr> <y_tr> <v_tr> <x_br> <y_br> <v_br> <x_bl> <y_bl> <v_bl>
+# Coordinates are normalized to [0.0, 1.0].
+# Visibility flag v:
+#   0: Not visible / outside frame
+#   1: Occluded / extrapolated / rounded corner
+#   2: Clearly visible
+# ==============================================================================
+
+# Dataset root directory (Relative to project root or absolute path)
+path: datasets/document_pose
+
+# Subdirectories for splits (relative to 'path')
+train: images/train
+val: images/val
+test: images/test
+
+# Document Classes
+names:
+  0: cccd
+  1: gplx
+
+# Keypoint shape definition: [num_keypoints, dimensions]
+# 4 corners, 3 dimensions per corner: (x, y, visibility)
+kpt_shape: [4, 3]
+
+# Flip indices for horizontal augmentation (left-right reflection):
+# 0 (TL) <-> 1 (TR), 2 (BR) <-> 3 (BL)
+flip_idx: [1, 0, 3, 2]
