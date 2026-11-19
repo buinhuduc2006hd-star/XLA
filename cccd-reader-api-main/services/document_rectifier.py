@@ -188,7 +188,11 @@ class DocumentRectifier:
 
         Args:
             image: Ảnh gốc BGR dạng NumPy array.
-            corners: Mảng 4 góc [[x_tl, y_tl], [x_tr, y_tr], [x_br, y_br], [x_bl, y_bl]] trên ảnh gốc.
+            corners: Mảng 4 góc theo quy ước Roboflow:
+                     Index 0: point_up_left (TL)
+                     Index 1: point_up_right (TR)
+                     Index 2: point_bottom_right (BR)
+                     Index 3: point_bottom_left (BL)
             card_type: 'cccd' hoặc 'gplx'.
             target_size: (target_width, target_height), mặc định (856, 540).
 

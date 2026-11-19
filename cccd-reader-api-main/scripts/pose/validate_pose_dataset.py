@@ -31,7 +31,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("validate_pose_dataset")
 
 EXPECTED_CLASSES = {0: "cccd", 1: "gplx"}
-KEYPOINT_NAMES = ["top_left", "top_right", "bottom_right", "bottom_left"]
+ROBOFLOW_KEYPOINT_NAMES = [
+    "point_up_left",
+    "point_up_right",
+    "point_bottom_right",
+    "point_bottom_left",
+]
+KEYPOINT_NAMES = ROBOFLOW_KEYPOINT_NAMES
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 

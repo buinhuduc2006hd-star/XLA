@@ -29,8 +29,19 @@ CLASS_ID_TO_NAME: dict[int, str] = {
 }
 NAME_TO_CLASS_ID: dict[str, int] = {v: k for k, v in CLASS_ID_TO_NAME.items()}
 
-# Tên và thứ tự 4 keypoint chuẩn theo chiều kim đồng hồ
-KEYPOINT_NAMES = ["top_left", "top_right", "bottom_right", "bottom_left"]
+# Tên và thứ tự 4 keypoint chuẩn theo cấu hình Roboflow thực tế
+# Index 0: point_up_left (Top Left)
+# Index 1: point_up_right (Top Right)
+# Index 2: point_bottom_right (Bottom Right)
+# Index 3: point_bottom_left (Bottom Left)
+ROBOFLOW_KEYPOINT_NAMES = [
+    "point_up_left",
+    "point_up_right",
+    "point_bottom_right",
+    "point_bottom_left",
+]
+KEYPOINT_NAMES = ROBOFLOW_KEYPOINT_NAMES
+LEGACY_KEYPOINT_NAMES = ["top_left", "top_right", "bottom_right", "bottom_left"]
 
 
 # ==============================================================================

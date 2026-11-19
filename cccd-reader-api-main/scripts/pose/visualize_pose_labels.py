@@ -40,7 +40,18 @@ KEYPOINT_COLORS = [
     (255, 0, 0),    # BR: Xanh dương (BGR)
     (0, 255, 255),  # BL: Vàng (BGR)
 ]
-KEYPOINT_LABELS = ["0:TL", "1:TR", "2:BR", "3:BL"]
+ROBOFLOW_KEYPOINT_NAMES = [
+    "point_up_left",
+    "point_up_right",
+    "point_bottom_right",
+    "point_bottom_left",
+]
+KEYPOINT_LABELS = [
+    "0:point_up_left (TL)",
+    "1:point_up_right (TR)",
+    "2:point_bottom_right (BR)",
+    "3:point_bottom_left (BL)",
+]
 
 
 def draw_pose_label(image: np.ndarray, label_text: str) -> np.ndarray:

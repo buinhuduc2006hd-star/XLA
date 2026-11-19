@@ -2,12 +2,13 @@
 # YOLOv8-Pose Dataset Configuration for Vietnamese ID Cards (CCCD & GPLX)
 # ==============================================================================
 # Target: 4 Physical Corners Detection for Perspective Rectification
-# Keypoint indices:
-#   0: top_left
-#   1: top_right
-#   2: bottom_right
-#   3: bottom_left
-# Format: <class-id> <x_center> <y_center> <width> <height> <x_tl> <y_tl> <v_tl> <x_tr> <y_tr> <v_tr> <x_br> <y_br> <v_br> <x_bl> <y_bl> <v_bl>
+# Roboflow Keypoint Specification:
+#   Index 0: point_up_left (Top Left)
+#   Index 1: point_up_right (Top Right)
+#   Index 2: point_bottom_right (Bottom Right)
+#   Index 3: point_bottom_left (Bottom Left)
+#
+# Format: <class-id> <x_center> <y_center> <width> <height> <x0> <y0> <v0> <x1> <y1> <v1> <x2> <y2> <v2> <x3> <y3> <v3>
 # Coordinates are normalized to [0.0, 1.0].
 # Visibility flag v:
 #   0: Not visible / outside frame
@@ -23,7 +24,7 @@ train: images/train
 val: images/val
 test: images/test
 
-# Document Classes
+# Document Classes (Roboflow compatible)
 names:
   0: cccd
   1: gplx
@@ -33,5 +34,6 @@ names:
 kpt_shape: [4, 3]
 
 # Flip indices for horizontal augmentation (left-right reflection):
-# 0 (TL) <-> 1 (TR), 2 (BR) <-> 3 (BL)
+# Index 0 (point_up_left) <-> Index 1 (point_up_right)
+# Index 2 (point_bottom_right) <-> Index 3 (point_bottom_left)
 flip_idx: [1, 0, 3, 2]

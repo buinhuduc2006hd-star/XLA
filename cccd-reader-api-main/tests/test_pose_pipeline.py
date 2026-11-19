@@ -111,7 +111,7 @@ class TestKeypointValidation(unittest.TestCase):
             min_kpt_conf=0.25,
         )
         self.assertFalse(is_valid)
-        self.assertIn("top_right", reason)
+        self.assertTrue("point_up_right" in reason or "top_right" in reason)
         self.assertIn("below minimum threshold", reason)
 
     def test_04_overlapping_corners_or_short_edge(self):

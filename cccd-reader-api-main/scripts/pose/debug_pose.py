@@ -40,7 +40,18 @@ CORNER_COLORS = {
     2: (255, 0, 0),    # BR: Xanh dương
     3: (255, 0, 255),  # BL: Tím
 }
-KEYPOINT_LABELS = ["TL", "TR", "BR", "BL"]
+ROBOFLOW_KEYPOINT_NAMES = [
+    "point_up_left",
+    "point_up_right",
+    "point_bottom_right",
+    "point_bottom_left",
+]
+KEYPOINT_LABELS = [
+    "point_up_left (TL)",
+    "point_up_right (TR)",
+    "point_bottom_right (BR)",
+    "point_bottom_left (BL)",
+]
 
 
 def draw_pose_debug_visualization(

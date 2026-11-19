@@ -1,20 +1,41 @@
 {
-  "manifest_version": "1.0.0",
+  "manifest_version": "2.0.0",
   "name": "vietnamese_document_pose_dataset",
-  "description": "Dataset scaffold for 4-corner keypoint detection on Vietnamese CCCD and GPLX cards using YOLOv8-Pose",
-  "created_at": "2026-11-16T21:08:00Z",
-  "status": "scaffold_initialized",
+  "description": "Dataset configuration and scaffold for 4-corner keypoint detection on Vietnamese CCCD and GPLX cards using YOLOv8-Pose with Roboflow compatibility",
+  "updated_at": "2026-11-19T12:40:00Z",
+  "status": "scaffold_roboflow_compatible",
   "classes": {
     "0": "cccd",
     "1": "gplx"
   },
   "keypoints": [
-    {"index": 0, "name": "top_left", "description": "Top-left physical corner in upright orientation"},
-    {"index": 1, "name": "top_right", "description": "Top-right physical corner in upright orientation"},
-    {"index": 2, "name": "bottom_right", "description": "Bottom-right physical corner in upright orientation"},
-    {"index": 3, "name": "bottom_left", "description": "Bottom-left physical corner in upright orientation"}
+    {
+      "index": 0,
+      "name": "point_up_left",
+      "description": "Top-left physical corner in upright orientation",
+      "legacy_alias": "top_left"
+    },
+    {
+      "index": 1,
+      "name": "point_up_right",
+      "description": "Top-right physical corner in upright orientation",
+      "legacy_alias": "top_right"
+    },
+    {
+      "index": 2,
+      "name": "point_bottom_right",
+      "description": "Bottom-right physical corner in upright orientation",
+      "legacy_alias": "bottom_right"
+    },
+    {
+      "index": 3,
+      "name": "point_bottom_left",
+      "description": "Bottom-left physical corner in upright orientation",
+      "legacy_alias": "bottom_left"
+    }
   ],
   "kpt_shape": [4, 3],
+  "flip_idx": [1, 0, 3, 2],
   "splits": {
     "train": {
       "images_count": 0,
@@ -29,5 +50,5 @@
       "labels_count": 0
     }
   },
-  "notes": "No synthetic labels or detection crops were duplicated. Awaiting real annotated keypoint data."
+  "notes": "Fully synchronized with Roboflow Keypoint Specification (point_up_left, point_up_right, point_bottom_right, point_bottom_left). Awaiting real annotated keypoint data."
 }
