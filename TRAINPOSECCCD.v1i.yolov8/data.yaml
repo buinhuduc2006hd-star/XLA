@@ -1,0 +1,16 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+kpt_shape: [4, 3]
+flip_idx: [1, 0, 3, 2]
+
+nc: 1
+names: ['cccd']
+
+roboflow:
+  workspace: b24dcdk008s-workspace
+  project: trainposecccd
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/b24dcdk008s-workspace/trainposecccd/dataset/1
